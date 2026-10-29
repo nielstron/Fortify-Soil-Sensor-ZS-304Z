@@ -48,7 +48,7 @@ static void	discharge_c_rh(void) {
 
 
 static u32 get_rh(void) {
-	u32 k, z, val;
+
 	// discharge cap RHI
 	discharge_c_rh();
 
@@ -76,6 +76,12 @@ static u32 get_rh(void) {
 	gpio_write(PWM_PIN, 0);
 	discharge_c_rh();
 
+#if BOARD == BOARD_ARTECO_ZS304Z
+    // No validated Arteco conversion curve. Publish raw samples independently;
+    // 0xffff is the ZCL invalid/unknown RH value, not a fabricated percentage.
+    return 0xffff;
+#else
+    u32 k, z, val;
 	k = sensor_rh.coef.d << 16;
 	k /= sensor_rh.adc_d;
 	z = sensor_rh.coef.z << 16;
@@ -89,6 +95,7 @@ static u32 get_rh(void) {
 	if(val <= 1000)
 		return 0; // 0.00%
 	return val - 1000;
+#endif
 }
 
 

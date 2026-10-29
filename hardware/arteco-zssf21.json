@@ -1,0 +1,17 @@
+{
+  "board": "ZSSF21 V1.0",
+  "chip": "TLSR8251F512ET32",
+  "flash_bytes": 524288,
+  "verified": false,
+  "evidence": "Fill each field only after tracing or measuring this board. S/GND/3V header labels do not establish sensor GPIOs.",
+  "button": null,
+  "button_active": null,
+  "led": null,
+  "led_active": null,
+  "pwm_pin": null,
+  "pwm_function": null,
+  "pwm_id": null,
+  "adc_pin": null,
+  "adc_channel": null,
+  "i2c_group": null
+}

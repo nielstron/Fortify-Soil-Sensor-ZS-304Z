@@ -1,117 +1,55 @@
-# Fortify Soil Sensor (ZG-303Z)
+# Fortify raw ADC port for Arteco ZS-304Z
 
-Custom Zigbee firmware + Home Assistant integration for the **ZG-303Z** soil-moisture / temperature / humidity sensor (sold as **Sonoff ZG-303Z-z** and **HOBEIAN ZG-303Z**, a Telink TLSR825x device).
+A hardware bring-up fork of [sweitzja/Fortify-Soil-Sensor-ZG-303Z](https://github.com/sweitzja/Fortify-Soil-Sensor-ZG-303Z), targeting the **Arteco ZS-304Z, PCB ZSSF21 V1.0, Telink TLSR8251F512ET32 (512 KB flash, 32 KB SRAM)**.
 
-This is a thin set of modifications on top of **[pvvx/ZigbeeTLc](https://github.com/pvvx/ZigbeeTLc)** that:
+**Status: compile-checkable port; not yet hardware validated or ready to flash.** The S/GND/3V programming header is labelled, but the probe, LED, button and I²C pin assignments still need measurements. The original ZG-303Z binaries and OTA entries have been removed from this fork. Its OTA index is intentionally empty.
 
-1. **Exposes the raw soil-moisture ADC** (and the diode/battery reference) as Zigbee attributes, so you can build your **own calibration curve** in Home Assistant instead of relying on the firmware's fixed curve.
-2. **Rebrands the device** to manufacturer **`Fortify`**, model **`Soil-Moisture`** — so a flashed unit is instantly distinguishable from stock (stock reports `HOBEIAN ZG-303Z`; pvvx's default keeps `Sonoff ZG-303Z-z`, which is easy to mistake for stock).
-3. Ships a **ZHA quirk** that surfaces the raw values plus pvvx's config controls (temperature/humidity offset, measurement interval).
-4. Ships a **Home Assistant template sensor** that turns the raw ADC into a calibrated, battery-compensated moisture %.
+The goal is to expose the probe's ADC readings before the stock firmware clamps them to 0–100%. Our stock Arteco responded to air and water, but disagreed strongly with an AOYAN in the same soil. Applying a percentage offset cannot reliably recover information already lost inside the firmware.
 
-> Everything here is licensed MIT, same as pvvx/ZigbeeTLc. All firmware credit goes to **pvvx**; this repo only adds the soil-ADC exposure, the identity change, and the HA glue.
+## What is implemented
 
-> 📖 **[docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md)** — the detailed reference pvvx's docs lack: every entity, how the capacitive ADC actually works, and exactly where the averaging/windowing happens.
-> 📡 **[docs/OTA.md](docs/OTA.md)** — self-hosted over-the-air update channel (this repo *is* the OTA index).
+- Pinned pvvx source revision matching the original Fortify patch, SDK and toolchain.
+- A separate Arteco board target (`BOARD_ARTECO_ZS304Z`, private board ID 126).
+- Explicit hardware profile with **no guessed Arteco GPIO defaults**.
+- A reference-only compile check that compiles and links all firmware without producing flash/OTA images.
+- Raw probe ADC (`0xF000`) and DC-reference ADC (`0xF001`) on endpoint 2, cluster `0x0405`.
+- Manufacturer/model **Fortify / ZS-304Z-Raw**, distinct from stock and original Fortify devices.
+- Separate OTA image type **0xF304**, distinct from original Fortify's 0xF32C.
+- ZHA quirk and a Home Assistant calibration example using measured reference points.
 
----
+The raw acquisition sequence currently follows Fortify's PWM/DC method. Its suitability for the Arteco's analog circuit still needs verification. The inherited ZG-303Z percentage curve is **disabled for the Arteco target**; the corresponding measured-value attribute reports ZCL unknown (`0xffff`). Do not interpret the DC reading as validated battery compensation yet.
 
-## Why expose raw ADC?
+## Build on macOS
 
-pvvx's firmware converts the capacitive reading to a moisture % with a fixed reciprocal curve calibrated to one probe/PCB at ~3.0 V:
+Requires Python 3, Git and a running Docker Desktop. The supplied Telink compiler is Linux x86-64, so Docker uses `linux/amd64` (also on Apple Silicon).
 
-```
-moisture% = k / (adc_rh · d/adc_d − z)      // k=3100000, z=820, d=8810
-```
-
-`adc_d` is a diode/Vbat reference that cancels **battery-voltage** drift — but the curve is **not** calibrated to your probe and does **not** temperature-compensate. Exposing the raw inputs lets you fit your own curve (and optional temp correction) in HA.
-
-- `raw_adc` (attr **0xF000**) — raw soil ADC, pre-curve (median-filtered per sample, ×4 scale)
-- `adc_diode` (attr **0xF001**) — diode/Vbat reference (×4 scale)
-- Use the **ratio `raw_adc / adc_diode`** as your calibration input — the ×4 scale and battery drift both cancel.
-
-Direction: **wetter → lower `raw_adc`** (ratio falls as moisture rises).
-
----
-
-## Repo layout
-
-```
-docs/
-  HOW_IT_WORKS.md          # entities, ADC, and averaging explained in depth
-  OTA.md                   # self-hosted OTA update channel
-firmware/
-  fortify_zg303z.patch     # the changes vs pvvx/ZigbeeTLc (git apply)
-  src/                     # the 6 modified source files (drop-in replacements)
-  CHANGES.md               # human-readable description of every change
-quirk/
-  zigbeetlc_zg303z.py      # ZHA v2 quirk (Fortify/Soil-Moisture)
-homeassistant/
-  soil_moisture_calibrated.yaml   # calibrated template sensor + notes
-ota/
-  index.json               # OTA manifest (point ZHA here)
-  *.zigbee                 # the firmware image(s)
+```sh
+python3 tools/build.py --compile-check
 ```
 
----
+This uses `hardware/compile-check.json`, whose pins come from ZG-303Z **only to check compilation**. The build log, ELF/listing and `build/compile-check/build-info.json` remain available; no `.bin` or OTA images are generated. Do not flash the ELF either: those are reference pins, not this board's wiring.
 
-## 1. Build the firmware
+For a hardware build, complete `hardware/arteco-zssf21.json`, record the measurement evidence, and set `verified` to true only after checking every field:
 
-Built against pvvx/ZigbeeTLc with the bundled Telink `tc32` toolchain. On a Linux box (or WSL — no root needed):
-
-```bash
-git clone --depth 1 https://github.com/pvvx/ZigbeeTLc.git
-cd ZigbeeTLc
-# unpack the bundled toolchain + SDK without `unzip`:
-tar -xjf tools/linux/tc32_gcc_v2.0.tar.bz2 -C tools/linux/
-python3 -m zipfile -e tools/SDK_z.zip  SDK_z
-python3 -m zipfile -e tools/SDK_bz.zip SDK_bz
-
-# apply this repo's changes:
-git apply /path/to/firmware/fortify_zg303z.patch
-#   ...or just copy firmware/src/*.{c,h} over src/
-
-make -j PYTHON=python3 PROJECT_NAME=ZG303Z POJECT_DEF="-DBOARD=BOARD_ZG303Z" ZNAME="Fortify:Soil-Moisture"
-# -> bin/ZG303Z.bin
+```sh
+python3 tools/build.py --profile hardware/arteco-zssf21.json
 ```
 
-## 2. Flash it
+The command refuses the shipped unverified profile. A completed profile permits build output under `build/arteco/ZigbeeTLc/arteco-bin/`; a successful compiler run does not establish hardware compatibility. On Linux amd64, add `--native` after installing build-essential, Python 3, Git, bzip2 and libncurses5. Each invocation requires a fresh generated source directory; remove only the previous `build/compile-check/ZigbeeTLc` or `build/arteco/ZigbeeTLc` before rebuilding.
 
-Serial (single-wire SWS) via pvvx's [USB-COM flasher](https://pvvx.github.io/ATC_MiThermometer/USBCOMFlashTx.html) — GND→GND, 3V3→Vbat, TX→SWS (pin 3 on the 5-pin header). Write `bin/ZG303Z.bin`. After flashing, the device joins as **Fortify Soil-Moisture**.
+See [hardware bring-up](docs/HARDWARE.md) before connecting anything. There is no flash/erase command in this fork's build wrapper.
 
-> The ZG-303Z-z uses a TLSR8250; pvvx's UART-bootloader tool (`TlsrComProg825x`) doesn't support it, but the raw-SWS `USBCOMFlashTx` web flasher does.
+## Home Assistant
 
-## 3. Install the ZHA quirk
+For **custom firmware only**, copy `quirk/fortify_arteco_zs304z.py` into your configured ZHA custom-quirks directory and restart HA. It matches only `Fortify / ZS-304Z-Raw`; it does not replace the stock Arteco Tuya quirk. The quirk targets the current `zhaquirks.builder` API used by this installation.
 
-```yaml
-# configuration.yaml
-zha:
-  custom_quirks_path: /config/zha_quirks
-```
+Once hardware measurements are validated, use `homeassistant/soil_moisture_calibrated.yaml`. Its calibration helpers start without assumed dry/wet values; the derived percentage is unavailable until distinct reference values are provided. Keep original ADC entities available for diagnosis. Sensor entity IDs must be replaced with those in your installation.
 
-Drop `quirk/zigbeetlc_zg303z.py` into `/config/zha_quirks/`, restart HA, then **Reconfigure** the device. You'll get: `Soil raw ADC`, `Soil ADC reference`, `Temperature offset`, `Humidity offset`, `Measurement interval`, plus temp / air-humidity / soil-moisture / battery.
+## Sources and credit
 
-## 4. Calibrate in Home Assistant
+- Original Fortify source: see `firmware/upstream.json` for its exact commit.
+- [pvvx/ZigbeeTLc](https://github.com/pvvx/ZigbeeTLc), pinned to `bda98388738e35897bfe230b74211bcecb4dc039`, whose source blobs match Fortify's patch base.
+- [pvvx ZG-303Z hardware reference](https://pvvx.github.io/ZG-303Z/) describes a different PCB. Its header/pin map must not be substituted for this board.
+- Original Fortify design notes and changes are retained under `docs/upstream/` as **ZG-303Z references**, not Arteco hardware claims.
 
-See `homeassistant/soil_moisture_calibrated.yaml`. In short:
-
-1. **Dry (in air):** note `raw_adc / adc_diode` → that's your 0% ratio.
-2. **Wet (in water / saturated soil):** note the ratio → 100%.
-3. The template does a 2-point linear fit on the ratio. Add a midpoint for a polynomial fit, and/or a temperature term, if you need precision (the device's temperature sensor is exposed for this).
-
----
-
-## Reporting / sampling knobs
-
-- **Sample interval** — how often the device measures (incl. soil): the `Measurement interval` number entity (3–255 s).
-- **Report rate / heartbeat / delta** — standard ZCL reporting config, tunable per-attribute from ZHA. The raw values default to a **10-minute heartbeat** (report at least every 10 min even if unchanged, for liveness) plus a small change-delta.
-- pvvx's moisture-% output is smoothed by a 4-sample moving average; the **raw ADC is not** (responsive — smooth it yourself in HA if desired).
-
-## Credits
-
-- **[pvvx/ZigbeeTLc](https://github.com/pvvx/ZigbeeTLc)** — the firmware this builds on (MIT).
-- Telink TLSR825x SDK.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+Keep the original MIT license. SDK/source files retain their original Telink notices.

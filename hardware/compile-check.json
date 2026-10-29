@@ -1,0 +1,17 @@
+{
+  "board": "ZSSF21 V1.0",
+  "chip": "TLSR8251F512ET32",
+  "flash_bytes": 524288,
+  "verified": false,
+  "evidence": "ZG-303Z reference pins for compiler validation ONLY. Not an Arteco pin map.",
+  "button": "PD4",
+  "button_active": 0,
+  "led": "PA0",
+  "led_active": 0,
+  "pwm_pin": "PB4",
+  "pwm_function": "AS_PWM4",
+  "pwm_id": "PWM4_ID",
+  "adc_pin": "PB5",
+  "adc_channel": 6,
+  "i2c_group": "I2C_GPIO_GROUP_C0C1"
+}

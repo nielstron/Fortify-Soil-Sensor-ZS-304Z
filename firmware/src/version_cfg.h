@@ -98,6 +98,8 @@
 #define BOARD_ZG204ZL				50 // HOBEIAN ZG-204ZL PIR + LUX sensor https://pvvx.github.io/ZG-204ZL-3.0
 #define BOARD_ZG204ZV				51 // HOBEIAN-ZG-204ZV T&H + LUX + Radar Sensor XBR818
 
+#define BOARD_ARTECO_ZS304Z 126 // Private port: ZSSF21 V1.0, TLSR8251F512ET32
+
 /* Board define */
 #ifndef BOARD
 #define BOARD					BOARD_TS0201_TZ3000 // BOARD_LYWSD03MMC or BOARD_CGDK2 or ...
@@ -130,7 +132,7 @@
 #define APP_BUILD				0x16	//BCD app build "0.4"
 #else
 #define APP_RELEASE				0x01	//BCD app release "0.1"
-#define APP_BUILD				0x45	//BCD app build "4.5" (Fortify: force rejoin when link stuck)
+#define APP_BUILD				0x46	//BCD app build "4.6" (Arteco raw-ADC bring-up port)
 #endif
 #define STACK_RELEASE			0x30	//BCD stack release 3.0
 #define STACK_BUILD				0x01	//BCD stack build 01
@@ -140,7 +142,9 @@
  * Refer to ZCL OTA specification for details.
  */
 #define MANUFACTURER_CODE_TELINK           	0x1141	// Telink ID
-#if (BOARD == BOARD_ZG303Z)
+#if (BOARD == BOARD_ARTECO_ZS304Z)
+#define IMAGE_TYPE 0xF304 // Private Arteco raw-ADC OTA type
+#elif (BOARD == BOARD_ZG303Z)
 #define	IMAGE_TYPE							0xF32C	// Fortify private OTA image type (isolates from pvvx 1141-022c)
 #else
 #define	IMAGE_TYPE							((CHIP_TYPE << 8) | BOARD)

@@ -1,0 +1,2 @@
+zha-quirks==2.3.0
+zigpy==2.3.0

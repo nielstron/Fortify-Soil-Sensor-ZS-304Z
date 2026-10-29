@@ -1,0 +1,17 @@
+name: Compile Arteco port (reference pins only)
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libncurses5
+      - uses: astral-sh/setup-uv@v6
+      - run: uv run --python 3.14 --with-requirements requirements-test.txt python -m unittest discover -s tests -v
+      - run: python3 tools/build.py --compile-check --native
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compile-check-metadata-only
+          path: build/compile-check/build-info.json

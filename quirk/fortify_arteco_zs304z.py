@@ -1,4 +1,4 @@
-"""Sonoff ZG-303Z-z (pvvx ZigbeeTLc firmware, raw-ADC build).
+"""Arteco ZS-304Z / ZSSF21 (Fortify custom firmware, raw-ADC port).
 
 Exposes:
   - Temperature offset / Humidity offset / Measurement interval  (HVAC UI cluster 0x0204)
@@ -9,16 +9,16 @@ Requires the custom firmware built with the raw_adc/adc_diode attributes.
 Based on https://github.com/pvvx/ZigbeeTLc (zhaquirks/custom/zigbeetlc.py).
 """
 
-from zigpy.quirks.v2 import QuirkBuilder
-from zigpy.quirks.v2.homeassistant import PERCENTAGE, UnitOfTemperature, UnitOfTime
-from zigpy.quirks.v2.homeassistant.sensor import SensorStateClass
+from zhaquirks.builder import QuirkBuilder
+from zhaquirks.builder import PERCENTAGE, UnitOfTemperature, UnitOfTime
+from zhaquirks.builder import SensorStateClass
 import zigpy.types as t
 from zigpy.zcl import ClusterType
 from zigpy.zcl.clusters.hvac import UserInterface
 from zigpy.zcl.clusters.measurement import RelativeHumidity
 from zigpy.zcl.foundation import ZCLAttributeDef
 
-from zhaquirks import CustomCluster
+from zhaquirks.clusters import CustomCluster
 
 
 class TxPowerMode(t.enum8):
@@ -68,7 +68,7 @@ class SoilRawCluster(CustomCluster, RelativeHumidity):
 
 
 (
-    QuirkBuilder("Fortify", "Soil-Moisture")
+    QuirkBuilder("Fortify", "ZS-304Z-Raw")
     .removes(CustomUserInterfaceCluster.cluster_id, cluster_type=ClusterType.Client)
     .adds(CustomUserInterfaceCluster)
     .replaces(SoilRawCluster, endpoint_id=2)
