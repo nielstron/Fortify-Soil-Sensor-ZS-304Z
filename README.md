@@ -1,5 +1,7 @@
 # Fortify raw ADC port for Arteco ZS-304Z
 
+> Vibecoded
+
 A hardware bring-up fork of [sweitzja/Fortify-Soil-Sensor-ZG-303Z](https://github.com/sweitzja/Fortify-Soil-Sensor-ZG-303Z), targeting the **Arteco ZS-304Z, PCB ZSSF21 V1.0, Telink TLSR8251F512ET32 (512 KB flash, 32 KB SRAM)**.
 
 **Status: pin map bench-verified; Zigbee firmware builds, first hardware flash pending.** The pins were recovered from the stock firmware and confirmed with the `--hw-test` bench image (see [hardware bring-up](docs/HARDWARE.md)); the light sensor on PB5 reads 0 also with the stock firmware and is probably not fitted. The Zigbee build itself (pairing, reporting, debug mode, OTA) has not yet been tested on the device. The original ZG-303Z binaries and OTA entries have been removed from this fork. Its OTA index is intentionally empty.
