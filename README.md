@@ -18,7 +18,7 @@ The stock firmware turns the probe reading into a percentage clamped to 0–100 
 
 ## What I used to flash it
 
-- a 3.3 V USB-UART adapter (CH340)
+- [USB-UART adapter](https://s.click.aliexpress.com/e/_c3T1vwOV) (CH340, set to 3.3 V)
 - [resistors](https://s.click.aliexpress.com/e/_c3o2QKSd) (1 kΩ between the adapter's TX and the board's SWire pad)
 - [jumper wires](https://s.click.aliexpress.com/e/_c4W5qWTX)
 - [clamp fixtures](https://de.aliexpress.com/item/1005004869027755.html?channel=twinner) to hold contacts on the board's programming pads
