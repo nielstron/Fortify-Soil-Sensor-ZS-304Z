@@ -4,7 +4,7 @@
 
 > AliExpress link: https://s.click.aliexpress.com/e/_c3O0zJDJ
 
-<a href="https://s.click.aliexpress.com/e/_c3VsyyDL"><img src="https://ae-pic-a1.aliexpress-media.com/kf/See22da7a48c146f9806a8a8e053ca878X.jpg_350x350.jpg" alt="Arteco ZS-304Z soil sensor" width="200" align="right"></a>
+<a href="https://s.click.aliexpress.com/e/_c3VsyyDL"><img src="docs/images/arteco-zs-304z.jpg" alt="Arteco ZS-304Z soil sensor" width="200" align="right"></a>
 
 Zigbee firmware for the [Arteco ZS-304Z soil moisture sensor](https://s.click.aliexpress.com/e/_c3VsyyDL) (PCB ZSSF21), based on [Fortify](https://github.com/sweitzja/Fortify-Soil-Sensor-ZG-303Z) and [pvvx/ZigbeeTLc](https://github.com/pvvx/ZigbeeTLc), with a Home Assistant (ZHA) quirk.
 
@@ -18,11 +18,9 @@ The stock firmware turns the probe reading into a percentage clamped to 0–100 
 
 ## What I used to flash it
 
-- [USB-UART adapter](https://s.click.aliexpress.com/e/_c3T1vwOV) (CH340, set to 3.3 V)
-- [resistors](https://s.click.aliexpress.com/e/_c3o2QKSd) (1 kΩ between the adapter's TX and the board's SWire pad)
-- [jumper wires](https://s.click.aliexpress.com/e/_c4W5qWTX)
-- [clamp fixtures](https://de.aliexpress.com/item/1005004869027755.html?channel=twinner) to hold contacts on the board's programming pads
-- [breadboard](https://de.aliexpress.com/item/1005006143786009.html?channel=twinner)
+<table><tr><td align="center" width="20%"><a href="https://s.click.aliexpress.com/e/_c3T1vwOV"><img src="docs/images/usb-uart-adapter.jpg" alt="USB-UART adapter" width="120"></a><br><a href="https://s.click.aliexpress.com/e/_c3T1vwOV">USB-UART adapter</a><br><sub>CH340, set to 3.3 V</sub></td><td align="center" width="20%"><a href="https://s.click.aliexpress.com/e/_c3o2QKSd"><img src="docs/images/resistors.jpg" alt="Resistors" width="120"></a><br><a href="https://s.click.aliexpress.com/e/_c3o2QKSd">Resistors</a><br><sub>1 kΩ between TX and the SWire pad</sub></td><td align="center" width="20%"><a href="https://s.click.aliexpress.com/e/_c4W5qWTX"><img src="docs/images/jumper-wires.jpg" alt="Jumper wires" width="120"></a><br><a href="https://s.click.aliexpress.com/e/_c4W5qWTX">Jumper wires</a></td><td align="center" width="20%"><a href="https://de.aliexpress.com/item/1005004869027755.html?channel=twinner"><img src="docs/images/clamp-fixtures.jpg" alt="Clamp fixtures" width="120"></a><br><a href="https://de.aliexpress.com/item/1005004869027755.html?channel=twinner">Clamp fixtures</a><br><sub>hold contacts on the programming pads</sub></td><td align="center" width="20%"><a href="https://de.aliexpress.com/item/1005006143786009.html?channel=twinner"><img src="docs/images/breadboard.jpg" alt="Breadboard" width="120"></a><br><a href="https://de.aliexpress.com/item/1005006143786009.html?channel=twinner">Breadboard</a></td></tr></table>
+
+The product photos are local copies, in case the shop links stop working.
 
 ## How to do it
 
