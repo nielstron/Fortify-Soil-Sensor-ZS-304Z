@@ -234,6 +234,7 @@ void zb_bdbCommissioningCb(u8 status, void *arg){
 			if(g_sensorAppCtx.timerRejoinBackoffEvt) {
 				TL_ZB_TIMER_CANCEL(&g_sensorAppCtx.timerRejoinBackoffEvt);
 			}
+			app_report_config_later();	// HA's config entities match the device after every (re)join
 
 			g_sensorAppCtx.rejoin_cnt = REJOIN_FAILURE_COUNT;
 

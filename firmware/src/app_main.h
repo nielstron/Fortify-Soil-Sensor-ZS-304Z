@@ -183,6 +183,16 @@ void sensorDevice_dataCnfCb(void *arg);
 #define REHOME_ATTRID			0x0137
 extern u8 g_rehome_cmd;
 void link_note(bool ok);
+
+/* Reset probe settings (interval, settle, samples, threshold, heartbeat, PWM,
+ * compensation slopes) to their defaults; calibration points are kept.
+ * UI cfg attr 0x0138, write 1; reported back as 0 when done. */
+#define PROBE_RESET_ATTRID		0x0138
+extern u8 g_probe_reset_cmd;
+void probe_reset_written(void);
+/* Report all UI cfg settings to the coordinator (after join, after a reset). */
+void app_report_config(void);
+void app_report_config_later(void);	// same, a few seconds after a (re)join
 void sensorDevice_nlmeSyncCnf(void *arg);	// data poll result (zdo nlme sync confirm)
 void rehome_cmd_written(void);
 

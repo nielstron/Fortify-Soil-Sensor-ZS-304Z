@@ -89,6 +89,8 @@ class QuirkContractTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([(type(m).__name__, m.on_value, m.off_value) for m in sweep], [('SwitchMetadata', 1, 0)])
         self.assertEqual(device.endpoints[1].thermostat_ui.attributes_by_name['rehome'].id, 0x0137)
         self.assertEqual([type(m).__name__ for m in metadata if m.attribute_name == 'rehome'], ['SwitchMetadata'])
+        self.assertEqual(device.endpoints[1].thermostat_ui.attributes_by_name['probe_reset'].id, 0x0138)
+        self.assertEqual([type(m).__name__ for m in metadata if m.attribute_name == 'probe_reset'], ['SwitchMetadata'])
         sensors = [m for m in metadata if m.attribute_name.startswith('sweep_')]
         self.assertEqual(sorted(m.attribute_name for m in sensors), sorted(f'sweep_{ms}ms' for ms in settle_ms))
         self.assertTrue(all(m.endpoint_id == 2 and m.entity_type.value == 'diagnostic' for m in sensors))

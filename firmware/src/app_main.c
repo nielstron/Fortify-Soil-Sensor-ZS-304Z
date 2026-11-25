@@ -245,7 +245,94 @@ status_t app_report_to_coordinator(u8 endpoint, u16 cluster_id, u16 attr_id) {
 			cluster_id, pAttrEntry->id, pAttrEntry->type, pAttrEntry->data);
 }
 
+/* Report several attributes of one cluster straight to the coordinator, in
+ * frames of up to 8 records (no APS fragmentation needed). */
+static void app_report_attrs_to_coordinator(u8 endpoint, u16 cluster_id, const u16 *ids, u8 n) {
+	if(!zb_isDeviceJoinedNwk())
+		return;
+	u8 buf[sizeof(zclReportCmd_t) + 8 * sizeof(zclReport_t)];
+	zclReportCmd_t *cmd = (zclReportCmd_t *)buf;
+	epInfo_t dstEpInfo;
+	TL_SETSTRUCTCONTENT(dstEpInfo, 0);
+	dstEpInfo.profileId = HA_PROFILE_ID;
+	dstEpInfo.dstAddrMode = APS_SHORT_DSTADDR_WITHEP;
+	dstEpInfo.dstAddr.shortAddr = 0x0000;
+	dstEpInfo.dstEp = 1;
+	cmd->numAttr = 0;
+	for(u8 i = 0; i < n; i++) {
+		zclAttrInfo_t *a = zcl_findAttribute(endpoint, cluster_id, ids[i]);
+		if(a) {
+			cmd->attrList[cmd->numAttr].attrID = a->id;
+			cmd->attrList[cmd->numAttr].dataType = a->type;
+			cmd->attrList[cmd->numAttr].attrData = a->data;
+			cmd->numAttr++;
+		}
+		if(cmd->numAttr == 8 || (i == n - 1 && cmd->numAttr)) {
+			zcl_sendReportAttrsCmd(endpoint, &dstEpInfo, TRUE, ZCL_FRAME_SERVER_CLIENT_DIR, cluster_id, cmd);
+			cmd->numAttr = 0;
+		}
+	}
+}
+
+/* All UI cfg settings, so HA's entities match the device after a (re)join or reset. */
+void app_report_config(void) {
+	static const u16 ids[] = {
+		0x0100, 0x0101, 0x0107,		// temperature/humidity offset, reporting (measurement) interval
+		0x0120, 0x0121, 0x0122, 0x0123, 0x0124,
 #if (DEV_SERVICES & SERVICE_PLM)
+		DEBUG_MODE_ATTRID, PROBE_INTERVAL_ATTRID, PROBE_SETTLE_ATTRID, PROBE_REPORT_CHANGE_ATTRID,
+		PROBE_SAMPLES_ATTRID, PROBE_HEARTBEAT_ATTRID, PROBE_PWM_KHZ_ATTRID, PROBE_PWM_DUTY_ATTRID,
+		PROBE_CAL_DRY_ATTRID, PROBE_CAL_WET_ATTRID, PROBE_CAL_DRY_MV_ATTRID, PROBE_CAL_WET_MV_ATTRID,
+		PROBE_COMP_SLOPE_DRY_ATTRID, PROBE_COMP_SLOPE_WET_ATTRID,
+		PROBE_CAL_CAPTURE_ATTRID, PROBE_SWEEP_ATTRID, PROBE_RESET_ATTRID,
+#endif
+		REHOME_ATTRID,
+	};
+	app_report_attrs_to_coordinator(SENSOR_DEVICE_ENDPOINT, ZCL_CLUSTER_HAVC_USER_INTERFACE_CONFIG,
+			ids, sizeof(ids) / sizeof(ids[0]));
+}
+
+static int app_report_config_cb(void *arg) {
+	(void) arg;
+	app_report_config();
+	return -1;
+}
+
+void app_report_config_later(void) {
+	TL_ZB_TIMER_SCHEDULE(app_report_config_cb, NULL, 5000);
+}
+
+#if (DEV_SERVICES & SERVICE_PLM)
+u8 g_probe_reset_cmd = 0;			// attribute 0x0138 (command: 1 = reset probe settings)
+
+static int probe_reset_cb(void *arg) {
+	(void) arg;
+	zcl_thermostatUICfgAttr_t *c = &g_zcl_thermostatUICfgAttrs;
+	const zcl_thermostatUICfgAttr_t *d = &g_zcl_thermostatUICfgDefault;
+	c->probe_interval_s = d->probe_interval_s;
+	c->probe_settle_ms = d->probe_settle_ms;
+	c->probe_report_change = d->probe_report_change;
+	c->probe_samples = d->probe_samples;
+	c->probe_heartbeat_n = d->probe_heartbeat_n;
+	c->probe_pwm_khz = d->probe_pwm_khz;
+	c->probe_pwm_duty = d->probe_pwm_duty;
+	c->probe_comp_slope_dry = d->probe_comp_slope_dry;
+	c->probe_comp_slope_wet = d->probe_comp_slope_wet;
+	g_probe_reset_cmd = 0;		// switch feedback
+	zcl_thermostatConfig_save();
+	probe_apply_reporting();
+	g_zcl_MoistureAttrs.measuredValue = probe_percent(g_zcl_MoistureAttrs.raw_adc);
+	app_report_config();
+	sws_printf("probe settings reset to defaults\n");
+	return -1;
+}
+
+/* Write to PROBE_RESET_ATTRID; deferred so the write response precedes the reports. */
+void probe_reset_written(void) {
+	if(g_probe_reset_cmd)
+		TL_ZB_TIMER_SCHEDULE(probe_reset_cb, NULL, 250);
+}
+
 /* Reporting of the soil values on EP2 from config: threshold (0x0128) for raw
  * 0xF000/0xF001; heartbeat = N (0x012A) x probe interval (0x0126) for those
  * and the moisture % (0x0000), capped below 0xFFFF ("no reporting"). */
@@ -355,6 +442,9 @@ void probe_cfg_written(u16 attrID) {
 		break;
 	case REHOME_ATTRID:
 		rehome_cmd_written();
+		break;
+	case PROBE_RESET_ATTRID:
+		probe_reset_written();
 		break;
 	case PROBE_CAL_DRY_ATTRID:
 	case PROBE_CAL_WET_ATTRID:

@@ -109,6 +109,11 @@ class CustomUserInterfaceCluster(CustomCluster, UserInterface):
         rehome = ZCLAttributeDef(
             id=0x0137, type=t.uint8_t, access="rwp", is_manufacturer_specific=False
         )
+        # Command: write 1 to reset probe settings to defaults (calibration kept);
+        # reported back as 0 when done
+        probe_reset = ZCLAttributeDef(
+            id=0x0138, type=t.uint8_t, access="rwp", is_manufacturer_specific=False
+        )
         # Battery compensation of the calibration points (stock Arteco model)
         probe_cal_dry_voltage = ZCLAttributeDef(
             id=0x0131, type=t.uint16_t, access="rwp", is_manufacturer_specific=False
@@ -219,7 +224,7 @@ builder = (
         step=1,
         unit="dBm",
         translation_key="tx_power_fixed",
-        fallback_name="TX power (fixed mode)",
+        fallback_name="TX power fixed",
         mode="box",
     )
     .sensor(
@@ -234,7 +239,7 @@ builder = (
         CustomUserInterfaceCluster.AttributeDefs.debug_mode.name,
         CustomUserInterfaceCluster.cluster_id,
         translation_key="debug_mode",
-        fallback_name="Debug mode (500 ms probe reports, 10 min)",
+        fallback_name="Debug mode",
     )
     .number(
         CustomUserInterfaceCluster.AttributeDefs.probe_interval.name,
@@ -265,7 +270,7 @@ builder = (
         max_value=2000,
         step=1,
         translation_key="probe_report_change",
-        fallback_name="Probe report threshold (raw counts)",
+        fallback_name="Probe report threshold",
         mode="box",
     )
     .number(
@@ -285,7 +290,7 @@ builder = (
         max_value=100,
         step=1,
         translation_key="probe_heartbeat",
-        fallback_name="Probe heartbeat (every N probe intervals)",
+        fallback_name="Probe heartbeat",
         mode="box",
     )
     .number(
@@ -317,7 +322,7 @@ builder = (
         max_value=65535,
         step=1,
         translation_key="probe_cal_dry",
-        fallback_name="Probe calibration dry (raw, 0 = unset)",
+        fallback_name="Probe calibration dry",
         mode="box",
     )
     .number(
@@ -327,7 +332,7 @@ builder = (
         max_value=65535,
         step=1,
         translation_key="probe_cal_wet",
-        fallback_name="Probe calibration wet (raw, 0 = unset)",
+        fallback_name="Probe calibration wet",
         mode="box",
     )
     # Command switches: on = pending/running, the device switches them back off
@@ -339,7 +344,7 @@ builder = (
         off_value=0,
         unique_id_suffix="cal_dry_now",
         translation_key="probe_cal_dry_now",
-        fallback_name="Calibrate dry (use current reading)",
+        fallback_name="Calibrate dry",
     )
     .switch(
         CustomUserInterfaceCluster.AttributeDefs.probe_cal_capture.name,
@@ -348,7 +353,7 @@ builder = (
         off_value=0,
         unique_id_suffix="cal_wet_now",
         translation_key="probe_cal_wet_now",
-        fallback_name="Calibrate wet (use current reading)",
+        fallback_name="Calibrate wet",
     )
     # Only ZHA's default "Humidity" sensor on the soil endpoint (replaced by "Soil
     # moisture" below). The filter also applies to quirk-defined entities (generic
@@ -393,7 +398,7 @@ builder = (
         step=1,
         unit="mV",
         translation_key="probe_cal_dry_voltage",
-        fallback_name="Probe calibration dry: battery (0 = no compensation)",
+        fallback_name="Probe calibration dry battery",
         mode="box",
     )
     .number(
@@ -404,7 +409,7 @@ builder = (
         step=1,
         unit="mV",
         translation_key="probe_cal_wet_voltage",
-        fallback_name="Probe calibration wet: battery (0 = no compensation)",
+        fallback_name="Probe calibration wet battery",
         mode="box",
     )
     .number(
@@ -415,7 +420,7 @@ builder = (
         step=1,
         unit="‰",
         translation_key="probe_comp_slope_dry",
-        fallback_name="Battery compensation slope dry (stock 905)",
+        fallback_name="Battery compensation slope dry",
         mode="box",
     )
     .number(
@@ -426,7 +431,7 @@ builder = (
         step=1,
         unit="‰",
         translation_key="probe_comp_slope_wet",
-        fallback_name="Battery compensation slope wet (stock 804)",
+        fallback_name="Battery compensation slope wet",
         mode="box",
     )
     .switch(
@@ -436,10 +441,16 @@ builder = (
         fallback_name="Run probe sweep",
     )
     .switch(
+        CustomUserInterfaceCluster.AttributeDefs.probe_reset.name,
+        CustomUserInterfaceCluster.cluster_id,
+        translation_key="probe_reset",
+        fallback_name="Reset probe settings to default",
+    )
+    .switch(
         CustomUserInterfaceCluster.AttributeDefs.rehome.name,
         CustomUserInterfaceCluster.cluster_id,
         translation_key="rehome",
-        fallback_name="Find better parent (rejoin)",
+        fallback_name="Find better parent",
     )
 )
 for _ms in PROBE_SWEEP_MS:

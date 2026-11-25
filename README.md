@@ -79,20 +79,24 @@ All on cluster 0x0204 (UI config, EP1), manufacturer-specific, exposed by the qu
 | `0x0125` bool | **Debug mode** switch | off | Probe read and raw `0xF000`/`0xF001` reported to the coordinator every 500 ms; switches itself off after 10 min and reports off. RAM only. |
 | `0x0126` u16 | **Probe interval** (10 s – 12 h) | 600 s | Probe measured at most this often. Temperature/humidity/battery use the **Reporting interval** `0x0107` (default 20 s): the device wakes, measures them and sends any due reports. |
 | `0x0127` u16 | **Probe settle time** (1–1000 ms) | 300 ms | Power + PWM on → ADC read. Tune with the bench sweep. |
-| `0x0128` u16 | **Probe report threshold** (raw counts) | 40 | A new raw reading is reported at once if it moved at least this much. |
+| `0x0128` u16 | **Probe report threshold** (raw ADC counts) | 40 | A new raw reading is reported at once if it moved at least this much. |
 | `0x0129` u8 | **Probe ADC samples** (1–16) | 4 | ADC reads averaged per probe phase. |
 | `0x012A` u8 | **Probe heartbeat** (N, 1–100) | 6 | Unchanged values re-sent every N × probe interval (default hourly). |
 | `0x012B` u16 | **Probe excitation frequency** (10–2000 kHz) | 100 kHz | PWM2 on PC4 (stock value). |
 | `0x012C` u8 | **Probe excitation duty** (1–99 %) | 50 % | |
-| `0x012D` / `0x012E` u16 | **Calibration dry / wet** (raw, 0 = unset) | unset | Two-point linear moisture → standard `measuredValue` on EP2 (0.01 %), shown as **Soil moisture**. Unknown until both are set. |
-| `0x012F` u8 | **Calibrate dry / wet** buttons | — | Write 1 / 2: measure now and store that raw reading as the dry / wet point. |
-| `0x0130` u8 | **Run probe sweep** button | — | Write 1: one raw reading each at 1, 5, 20, 50, 100, 300 and 1000 ms settle, each after 1 s with the probe unpowered; results on EP2 `0xF010`–`0xF016` (**Probe sweep N ms** diagnostic sensors), reported as taken (~9 s in total). RAM only. |
-| `0x0131` / `0x0132` u16 | **Calibration dry / wet: battery** (mV, 0 = no compensation) | 0 | Battery voltage when each point was taken; recorded by the calibrate buttons. |
-| `0x0133` / `0x0134` u16 | **Battery compensation slope dry / wet** (‰) | 905 / 804 | Each point moves by slope/1000 probe-mV per battery mV: `point(V) = point_cal + slope·(V − V_cal)`. 0 = off. |
+| `0x012D` / `0x012E` u16 | **Probe calibration dry / wet** (raw, 0 = unset) | unset | Two-point linear moisture → standard `measuredValue` on EP2 (0.01 %), shown as **Soil moisture**. Unknown until both are set. |
+| `0x012F` u8 | **Calibrate dry** / **Calibrate wet** switches | off | Switch on (writes 1 / 2): at its next poll the device measures once (current reading), stores it as the dry / wet point with the battery voltage, saves it and switches back off. |
+| `0x0130` u8 | **Run probe sweep** switch | off | Switch on (writes 1): one raw reading each at 1, 5, 20, 50, 100, 300 and 1000 ms settle, each after 1 s with the probe unpowered; results on EP2 `0xF010`–`0xF016` (**Probe sweep N ms** diagnostic sensors), reported as taken (~9 s in total); switches back off when done. RAM only. |
+| `0x0131` / `0x0132` u16 | **Probe calibration dry / wet battery** (mV, 0 = no compensation) | 0 | Battery voltage when each point was taken; recorded by the calibrate switches. |
+| `0x0133` / `0x0134` u16 | **Battery compensation slope dry / wet** (‰) | 905 / 804 (stock firmware) | Each point moves by slope/1000 probe-mV per battery mV: `point(V) = point_cal + slope·(V − V_cal)`. 0 = off. |
+| `0x0137` u8 | **Find better parent** switch | off | Switch on: the device switches back off and rejoins through the best parent in range (full TX power). Not rate-limited. |
+| `0x0138` u8 | **Reset probe settings to default** switch | off | Switch on: probe interval, settle time, samples, threshold, heartbeat, PWM and compensation slopes back to the defaults above (calibration points kept), saved and reported; switches back off. |
 
 The sweep shows how the probe output charges after power-on. In air it follows `V(t) = V_end·(1 − e^(−t/τ))` with τ ≈ 18 ms; the ratio of the 20 ms to the 300 ms reading gives τ = −20 ms / ln(1 − ratio). If τ is the same in water/soil, a settle time of ~7τ (≈ 120–150 ms) is within the noise.
 
 Battery compensation uses the stock firmware's own model, recovered by disassembly: dry = 900/995·V − 248 mV and wet = 800/995·V − 347 mV, i.e. both end points move linearly with the battery voltage V. Only the slopes matter (the offsets are absorbed by the calibration), so they are configurable and default to 905 ‰ and 804 ‰. They describe the stock firmware's assumption for this circuit, not a measurement on this unit.
+
+**Link monitoring:** the last 10 link events (data polls and sent messages) are tracked; 3 failures among them make the device rejoin through the best parent in range at full TX power, at most once per 24 h to protect the battery. A lost parent is recovered by the stack's own rejoin with backoff. After every (re)join the device reports all settings above, so Home Assistant's entities match it.
 
 The device polls its parent at least every **7 s**, independent of the reporting interval: parents hold frames for a sleepy child only ~7.68 s (Zigbee default), so any config write reaches the device on its next poll. A Poll Control *set long poll interval* only changes polling (≤ 7 s), never the reporting interval.
 
