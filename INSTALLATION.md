@@ -68,6 +68,8 @@ This is the only flash that needs the cable: later updates go over the air (sect
 2. If the sensor was paired before with the stock firmware, remove it in ZHA first (it keeps its IEEE address).
 3. Add the device in ZHA. Settings changes reach it within ~7 s, because it polls its parent at least that often.
 
+The device page then shows the entities in the [README screenshots](README.md#in-home-assistant). The settings are explained in section 7.
+
 ## 6. OTA updates
 
 Point ZHA at a local index (`configuration.yaml`):
@@ -120,7 +122,7 @@ Raw values are on endpoint 2: **Soil raw ADC** (`0xF000`) and **Soil ADC referen
 
 **Battery compensation** uses the stock firmware's own model, recovered by disassembly: dry = 900/995·V − 248 mV and wet = 800/995·V − 347 mV. Only the slopes matter (the offsets are absorbed by the calibration). On this unit, air readings at 3.23 V and 3.00 V matched the 905 ‰ slope within 11 mV.
 
-**Probe sweep:** the probe output charges like an RC filter, `V(t) = V_end·(1 − e^(−t/τ))`, with τ ≈ 18 ms in air. The ratio r of the 20 ms to the 300 ms reading gives τ = −20 ms / ln(1 − r). If τ is the same in wet soil, a settle time of ~7τ (≈ 120–150 ms) is enough.
+**Probe sweep:** the probe output charges like an RC filter, `V(t) = V_end·(1 − e^(−t/τ))`, with τ ≈ 18 ms in air. The ratio r of the 20 ms to the 300 ms reading gives τ = −20 ms / ln(1 − r). In moist potting soil the sweep gave 774 / 2304 / 5547 / 7777 / 8429 / 8538 / 8516 at 1 / 5 / 20 / 50 / 100 / 300 / 1000 ms, i.e. τ ≈ 19 ms, the same as in air. So a settle time of ~7τ (≈ 130–150 ms) is enough; the default 300 ms has margin.
 
 **Link monitoring:** the device tracks its last 10 data polls and sent messages. 3 failures among them make it rejoin through the best parent at full TX power, at most once per 24 h to protect the battery. A completely lost parent is recovered by the stack's rejoin with backoff.
 
