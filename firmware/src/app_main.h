@@ -171,6 +171,21 @@ void tpc_note_tx(u8 status);
 void tpc_boost_max(void);
 void sensorDevice_dataCnfCb(void *arg);
 
+/* Parent link monitoring (app_main.c). The last LINK_WINDOW link events (data
+ * polls and APS data confirms) are kept; LINK_FAIL_THRESHOLD failures among them
+ * trigger a proactive re-home (rejoin through the best parent in range), at most
+ * once per LINK_REHOME_MIN_S to protect the battery. Recovery after a lost parent
+ * is left to the stack's own rejoin/backoff. A manual re-home (UI cfg attr
+ * 0x0137, write 1) is not capped. */
+#define LINK_WINDOW				10
+#define LINK_FAIL_THRESHOLD		3
+#define LINK_REHOME_MIN_S		86400
+#define REHOME_ATTRID			0x0137
+extern u8 g_rehome_cmd;
+void link_note(bool ok);
+void sensorDevice_nlmeSyncCnf(void *arg);	// data poll result (zdo nlme sync confirm)
+void rehome_cmd_written(void);
+
 /* Debug mode (UI cfg attr 0x0125, boolean, RAM only): while on, measure the probe
  * every DEBUG_MODE_PERIOD_MS and report raw 0xF000/0xF001 to the coordinator;
  * switches itself off after DEBUG_MODE_SEC and reports the attribute as off. */

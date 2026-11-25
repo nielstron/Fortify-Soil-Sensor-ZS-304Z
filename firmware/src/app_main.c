@@ -86,7 +86,7 @@ u8 g_txpwr_step    = 0;
 s8 g_txpwr_cur_dbm = 3;
 extern u32 rtcSeconds;
 static u8  tpc_badscore      = 0;  // rolling bad-parent-link score (NO_ACK +2, ok -1)
-static u32 tpc_lastRejoinSec = 0;  // rtcSeconds of last forced rejoin (backoff)
+
 
 static u8 tpc_step_for_dbm(u8 d){
 	u8 s = 0;
@@ -128,6 +128,67 @@ void tpc_boost_max(void){
 	}
 }
 
+/* ---- Parent link monitoring / re-homing ---------------------------------- */
+static u16 link_hist;			// bit i = 1: event i (0 = newest) failed
+static u32 rehome_last_sec;		// rtcSeconds of the last proactive re-home
+static u8  rehome_done;			// a proactive re-home happened since boot
+u8 g_rehome_cmd = 0;			// attribute 0x0137 (command: 1 = re-home now)
+
+static int link_rehome_cb(void *arg) {
+	(void) arg;
+	if(zb_isDeviceJoinedNwk()) {
+		sws_printf("re-home: rejoin via best parent\n");
+		tpc_boost_max();			// scan for parents at full TX power
+		zb_rejoinSecModeSet(REJOIN_SECURITY);
+		zb_rejoinReq(zb_apsChannelMaskGet(), g_bdbAttrs.scanDuration);
+	}
+	return -1;
+}
+
+/* Rejoin through the best parent in range. Proactive (not forced) re-homes are
+ * capped to one per LINK_REHOME_MIN_S; returns whether one was scheduled. */
+static bool link_rehome(bool forced, u32 delay_ms) {
+	if(!forced && rehome_done && rtcSeconds - rehome_last_sec < LINK_REHOME_MIN_S)
+		return false;
+	if(!forced) {
+		rehome_done = 1;
+		rehome_last_sec = rtcSeconds;
+	}
+	link_hist = 0;
+	TL_ZB_TIMER_SCHEDULE(link_rehome_cb, NULL, delay_ms);
+	return true;
+}
+
+/* Record one link event; too many failures in the window -> proactive re-home. */
+void link_note(bool ok) {
+	link_hist = ((link_hist << 1) | (ok ? 0 : 1)) & ((1 << LINK_WINDOW) - 1);
+	u8 fails = 0;
+	for(u16 h = link_hist; h; h >>= 1)
+		fails += h & 1;
+	if(fails >= LINK_FAIL_THRESHOLD && zb_isDeviceJoinedNwk())
+		link_rehome(false, 10);
+}
+
+/* Data poll to the parent: answered (with or without pending data) = ok. */
+void sensorDevice_nlmeSyncCnf(void *arg) {
+	nlme_sync_cnf_t *cnf = (nlme_sync_cnf_t *)arg;
+	link_note(cnf->status == SUCCESS || cnf->status == MAC_STA_NO_DATA);
+}
+
+static int rehome_cmd_cb(void *arg) {
+	(void) arg;
+	g_rehome_cmd = 0;		// switch feedback: report "off" before leaving the parent
+	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT, ZCL_CLUSTER_HAVC_USER_INTERFACE_CONFIG, REHOME_ATTRID);
+	link_rehome(true, 500);	// manual: not capped; give the report time to go out
+	return -1;
+}
+
+/* Write to REHOME_ATTRID. Deferred so the write response precedes the "off" report. */
+void rehome_cmd_written(void) {
+	if(g_rehome_cmd)
+		TL_ZB_TIMER_SCHEDULE(rehome_cmd_cb, NULL, 250);
+}
+
 void tpc_note_tx(u8 status){
 	zcl_thermostatUICfgAttr_t *c = &g_zcl_thermostatUICfgAttrs;
 	if(!c->txpwr_mode) return;            // adaptive only
@@ -151,19 +212,16 @@ void tpc_note_tx(u8 status){
 		}
 	} else if(tpc_badscore >= 12){                  // bad even at max TX power
 		tpc_badscore = 0;
-		if(zb_isDeviceJoinedNwk()
-		   && (rtcSeconds - tpc_lastRejoinSec >= 180)){   // at most once / 3 min
-			tpc_lastRejoinSec = rtcSeconds;
-			zb_rejoinSecModeSet(REJOIN_SECURITY);
-			zb_rejoinReq(zb_apsChannelMaskGet(), g_bdbAttrs.scanDuration);
-		}
+		if(zb_isDeviceJoinedNwk())
+			link_rehome(false, 10);                 // shares the daily re-home cap
 	}
 }
 
-/* EP1 data-confirm: feed TPC, then chain the existing on/off retry handler. */
+/* EP1 data-confirm: feed TPC and link monitoring, then chain the existing on/off retry handler. */
 void sensorDevice_dataCnfCb(void *arg){
 	apsdeDataConf_t *cnf = (apsdeDataConf_t *)arg;
 	tpc_note_tx(cnf->status);
+	link_note(cnf->status == SUCCESS);
 #if defined(ZCL_ON_OFF) && USE_RETRY_ONOFF
 	afTestOnOffCb(arg);
 #endif
@@ -218,12 +276,14 @@ void probe_apply_reporting(void) {
 
 u8 g_probe_cal_capture = 0;	// attribute 0x012F (command: 1 = dry, 2 = wet)
 
-/* Store the current probe reading as the dry or wet calibration point. */
-static void probe_cal_capture(void) {
+/* Store the current probe reading as the dry or wet calibration point. Runs from
+ * a timer after the write, so the write response precedes the "off" report. */
+static int probe_cal_capture_cb(void *arg) {
+	(void) arg;
 	u8 which = g_probe_cal_capture;
 	g_probe_cal_capture = 0;
 	if(which != 1 && which != 2)
-		return;
+		return -1;
 	read_rh_sensor_now();	// fresh reading with the current probe settings
 	u16 raw = g_zcl_MoistureAttrs.raw_adc;
 	u16 vbat = measured_battery.average_mv;	// for battery compensation of this point
@@ -241,7 +301,11 @@ static void probe_cal_capture(void) {
 			which == 1 ? PROBE_CAL_DRY_MV_ATTRID : PROBE_CAL_WET_MV_ATTRID);
 	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT2, ZCL_CLUSTER_MS_RELATIVE_HUMIDITY, 0xF000);
 	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT2, ZCL_CLUSTER_MS_RELATIVE_HUMIDITY, ZCL_RELATIVE_HUMIDITY_ATTRID_MEASUREDVALUE);
+	zcl_thermostatConfig_save();	// the write handler saved before this ran
+	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT, ZCL_CLUSTER_HAVC_USER_INTERFACE_CONFIG,
+			PROBE_CAL_CAPTURE_ATTRID);	// switch feedback: back to off
 	sws_printf("probe cal %s = %d\n", which == 1 ? "dry" : "wet", raw);
+	return -1;
 }
 
 /* Probe sweep: one reading per settle time, each from cold, reported as it is taken. */
@@ -260,11 +324,13 @@ static int probe_sweep_cb(void *arg) {
 	if(++sweep_step < PROBE_SWEEP_N)
 		return 0;			// next point after another cold gap
 	sweepTimerEvt = NULL;
+	g_probe_sweep_cmd = 0;	// switch feedback: back to off when done
+	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT, ZCL_CLUSTER_HAVC_USER_INTERFACE_CONFIG, PROBE_SWEEP_ATTRID);
 	return -1;
 }
 
+/* Command stays 1 (switch on) while the sweep runs. */
 static void probe_sweep_start(void) {
-	g_probe_sweep_cmd = 0;
 	if(sweepTimerEvt)
 		return;			// already running
 	sweep_step = 0;
@@ -284,7 +350,11 @@ void probe_cfg_written(u16 attrID) {
 		probe_apply_reporting();
 		break;
 	case PROBE_CAL_CAPTURE_ATTRID:
-		probe_cal_capture();
+		if(g_probe_cal_capture)
+			TL_ZB_TIMER_SCHEDULE(probe_cal_capture_cb, NULL, 250);
+		break;
+	case REHOME_ATTRID:
+		rehome_cmd_written();
 		break;
 	case PROBE_CAL_DRY_ATTRID:
 	case PROBE_CAL_WET_ATTRID:
@@ -362,7 +432,7 @@ const zdo_appIndCb_t appCbLst = {
 	sensorDevice_leaveCnfHandler,//leave cnf cb
 	NULL,//nwk update ind cb
 	NULL,//permit join ind cb
-	NULL,//nlme sync cnf cb
+	(zdo_nlmeSyncCnfCb_t)sensorDevice_nlmeSyncCnf,//nlme sync cnf cb: data poll results -> link monitoring
 	NULL,//tc join ind cb
 	NULL,//tc detects that the frame counter is near limit
 #if !USE_BLE

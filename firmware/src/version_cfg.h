@@ -132,7 +132,7 @@
 #define APP_BUILD				0x16	//BCD app build "0.4"
 #else
 #define APP_RELEASE				0x01	//BCD app release "0.1"
-#define APP_BUILD				0x46	//BCD app build "4.6" (Arteco raw-ADC bring-up port)
+#define APP_BUILD				0x47	//BCD app build "4.7" (Arteco: link monitoring + daily-capped re-home, switch feedback)
 #endif
 #define STACK_RELEASE			0x30	//BCD stack release 3.0
 #define STACK_BUILD				0x01	//BCD stack build 01
