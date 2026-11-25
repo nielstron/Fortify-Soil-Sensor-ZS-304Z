@@ -340,7 +340,14 @@ builder = (
         translation_key="probe_cal_wet_now",
         fallback_name="Calibrate wet (use current reading)",
     )
-    .prevent_default_entity_creation(endpoint_id=2, cluster_id=SoilRawCluster.cluster_id)
+    # Only ZHA's default "Humidity" sensor on the soil endpoint (replaced by "Soil
+    # moisture" below). The filter also applies to quirk-defined entities (generic
+    # `Sensor` class), so it must not match the whole endpoint/cluster.
+    .prevent_default_entity_creation(
+        endpoint_id=2,
+        cluster_id=SoilRawCluster.cluster_id,
+        function=lambda entity: type(entity).__name__ == "Humidity",
+    )
     .sensor(
         SoilRawCluster.AttributeDefs.measured_value.name,
         SoilRawCluster.cluster_id,
