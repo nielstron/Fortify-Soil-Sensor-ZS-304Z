@@ -47,3 +47,37 @@ After an original dump and verified pin map are available, first compare raw ADC
 ## Memory layout
 
 The TLSR8251 has 32 KB SRAM (0x840000–0x847fff), not the 64 KB of TLSR8258. This fork limits the linker stack end to 0x848000 and uses that symbol in both startup stack literals. The build checks the linked stack boundary, RAM usage and flash size. See [Telink’s TLSR825x product table](https://www.telink-semi.com/products/bluetooth-le/tlsr825x).
+
+## Stock firmware analysis (2026-11-24)
+
+The stock flash was read over SWire with pvvx `TLSR825xComFlasher` (macOS variant) through a CH340 + 1 kΩ adapter. The `S` pad is SWS. The chip only answers SWire when caught at power-up (replug 3V during `-t 60000`); once halted, reads need `-t 0 -c 57` (SWS divider 0x7c) because its reply rate is above the script's auto-search range. A full 512 KB read takes ~29 min. Dumps stay local in the gitignored `backup/` folder.
+
+The stock image is a plain Telink Zigbee SDK build (`KNLT` header, 0x24614 bytes; NV at 0x44000+, MAC at 0x76000). Driver functions were located by byte-matching our SDK build (`gpio_set_func` 0x20438, `gpio_set_input_en` 0x2037c, `gpio_setup_up_down_resistor` 0x20a78, `cpu_set_gpio_wakeup` 0x20c50); pins were read from the call arguments (Telink pin = port<<8 | bit mask) and the enums in Telink's `chip_8258/gpio.h`.
+
+| Function | Pin | Evidence in stock firmware |
+|---|---|---|
+| Button | PB6, active low | `.data` pin variable = 0x0140; GPIO input, 1 M pull-up, deep-sleep wake on level 0 (`start init wakeup gpio`) |
+| LED | PD2, active high | LED table at 0x23210 = {PD2, PD3}; all callers use index 0, write 1 = on |
+| Probe/light power | PD3, active high | Driven high before each measurement, low after |
+| Probe excitation | PC4, `AS_PWM2` | PWM2 cycle reg 0x79c = 480 ticks / 240 duty → 100 kHz, 50 % at 48 MHz |
+| Probe sense | PB4, ADC (B4P = 5) | Read after 300 ms settle → printed as `soil_moisture` |
+| Light sensor | PB5, ADC (B5P = 6) | Printed as `illumiance` |
+| Battery | PC5, ADC VBAT mode | Same pin the existing port uses |
+| Temp/RH | SHTC3 at 0x70, SDA PC0 / SCL PC1 | Bit-banged I²C; commands 0x3517 wake, 0x6458 measure, 0xB098 sleep |
+| Debug log | PC2 software UART TX ≈1 Mbaud; HW UART PB1 TX / PB7 RX | `printf` path; likely the two unlabelled header pads (unverified) |
+
+Stock moisture conversion: both end points scale with battery voltage V (mV): `vmin = 900·V/995 − 248`, `vmax = 800·V/995 − 347`; result is clamped to 0–100 %. Raw readings should therefore be reported alongside battery voltage.
+
+Open items before setting `verified`: the port does not yet drive PD3 during acquisition; confirm the two unlabelled pads; check the PWM/ADC timing (stock: 100 kHz, 300 ms settle) against the inherited Fortify acquisition.
+
+## Bench test results (2026-11-24, `--hw-test` image)
+
+Flashed over SWire (write 272 s, read-back verified), powered from the adapter's 3V3, output read from the SWS pad at 1 Mbaud (`tools/hwtest_dashboard.py`).
+
+| Function | Result |
+|---|---|
+| SHTC3 (PC0/PC1, 0x70) | ✅ plausible T/RH; reacts to touching the probe end (heat and skin moisture conduct along the PCB) |
+| Button PB6 | ✅ reads 1 idle (active low) |
+| Supply via PC5 | ✅ ≈3230 mV on the 3.3 V adapter |
+| Probe PB4 with PD3 + PWM2 on PC4 | ✅ ≈2725 mV in air (stock dry point ≈2674 mV), reacts to touch |
+| Light sensor PB5 | ❌ always 0 mV — also 0 with the stock firmware, so the sensor is most likely not fitted on this board |

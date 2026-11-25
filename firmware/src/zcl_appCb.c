@@ -205,8 +205,23 @@ void sensorDevice_zclWriteReqCmd(u16 clusterId, zclWriteCmd_t *pWriteReqCmd)
 #endif
 #ifdef ZCL_THERMOSTAT_UI_CFG
 	if(clusterId == ZCL_CLUSTER_HAVC_USER_INTERFACE_CONFIG) {
-		zcl_thermostatConfig_save();
-		tpc_apply();   // re-evaluate TX power if txpwr_* changed
+		bool cfg_changed = false;
+		for(int i = 0; i < numAttr; i++) {
+#if (DEV_SERVICES & SERVICE_PLM)
+			if(attr[i].attrID == DEBUG_MODE_ATTRID)
+				debug_mode_update();	// RAM only: no NV save
+			else {
+				probe_cfg_written(attr[i].attrID);
+				cfg_changed = true;
+			}
+#else
+			cfg_changed = true;
+#endif
+		}
+		if(cfg_changed) {
+			zcl_thermostatConfig_save();
+			tpc_apply();   // re-evaluate TX power if txpwr_* changed
+		}
 	} else
 #endif // ZCL_THERMOSTAT_UI_CFG
 #ifdef ZCL_ILLUMINANCE_LEVEL_SENSING
@@ -756,7 +771,8 @@ status_t test_set_measure_longpoll_interval(u32 measureInterval) {
 	g_zcl_illuminanceAttrs.cfg.measureInterval = (u8)(measureInterval);
 #endif
 	sws_printf("Set measureInterval: %d sec\n", measureInterval);
-	g_zcl_pollCtrlAttrs.longPollInterval = measureInterval << 2; // in 1/4 sec
+	// long poll follows the measurement interval, but never beyond the parent's ~7.68 s hold time
+	g_zcl_pollCtrlAttrs.longPollInterval = (measureInterval < LONG_POLL_MAX_SEC ? measureInterval : LONG_POLL_MAX_SEC) << 2; // in 1/4 sec
 	zb_setPollRate(g_zcl_pollCtrlAttrs.longPollInterval * POLL_RATE_QUARTERSECONDS);
 #if ZCL_THERMOSTAT_UI_CFG
 	g_zcl_thermostatUICfgAttrs.measureInterval = (u8)measureInterval;
@@ -768,8 +784,15 @@ status_t test_set_measure_longpoll_interval(u32 measureInterval) {
 	return ret;
 }
 
+/* Poll Control "set long poll interval" (e.g. sent by ZHA on check-in) only
+ * changes polling; it must not overwrite the measurement interval. */
 static status_t sensorDevice_zclPollCtrlSetLongPollIntervalCmdHandler(zcl_setLongPollInterval_t *pCmd) {
-	return test_set_measure_longpoll_interval(pCmd->newLongPollInterval >> 2);
+	u32 qs = pCmd->newLongPollInterval;
+	if(qs < g_zcl_pollCtrlAttrs.longPollIntervalMin || qs > (LONG_POLL_MAX_SEC << 2))
+		return ZCL_STA_INVALID_VALUE;
+	g_zcl_pollCtrlAttrs.longPollInterval = qs;
+	zb_setPollRate(qs * POLL_RATE_QUARTERSECONDS);
+	return ZCL_STA_SUCCESS;
 }
 
 static status_t sensorDevice_zclPollCtrlSetShortPollIntervalCmdHandler(zcl_setShortPollInterval_t *pCmd)

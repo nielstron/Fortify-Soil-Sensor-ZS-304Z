@@ -168,6 +168,177 @@ void sensorDevice_dataCnfCb(void *arg){
 	afTestOnOffCb(arg);
 #endif
 }
+
+/* Report one attribute straight to the coordinator (nwk 0x0000, endpoint 1),
+ * independent of the binding table. */
+status_t app_report_to_coordinator(u8 endpoint, u16 cluster_id, u16 attr_id) {
+	if(!zb_isDeviceJoinedNwk())
+		return ZCL_STA_FAILURE;
+	zclAttrInfo_t *pAttrEntry = zcl_findAttribute(endpoint, cluster_id, attr_id);
+	if(!pAttrEntry)
+		return ZCL_STA_FAILURE;
+	epInfo_t dstEpInfo;
+	TL_SETSTRUCTCONTENT(dstEpInfo, 0);
+	dstEpInfo.profileId = HA_PROFILE_ID;
+	dstEpInfo.dstAddrMode = APS_SHORT_DSTADDR_WITHEP;
+	dstEpInfo.dstAddr.shortAddr = 0x0000;
+	dstEpInfo.dstEp = 1;
+	return zcl_sendReportCmd(endpoint, &dstEpInfo, TRUE, ZCL_FRAME_SERVER_CLIENT_DIR,
+			cluster_id, pAttrEntry->id, pAttrEntry->type, pAttrEntry->data);
+}
+
+#if (DEV_SERVICES & SERVICE_PLM)
+/* Reporting of the soil values on EP2 from config: threshold (0x0128) for raw
+ * 0xF000/0xF001; heartbeat = N (0x012A) x probe interval (0x0126) for those
+ * and the moisture % (0x0000), capped below 0xFFFF ("no reporting"). */
+void probe_apply_reporting(void) {
+	u16 change = g_zcl_thermostatUICfgAttrs.probe_report_change;
+	u32 n = g_zcl_thermostatUICfgAttrs.probe_heartbeat_n;
+	u32 iv = g_zcl_thermostatUICfgAttrs.probe_interval_s;
+	if(n < 1 || n > PROBE_HEARTBEAT_N_MAX)
+		n = PROBE_HEARTBEAT_N_DEF;
+	if(iv < PROBE_INTERVAL_MIN_S)
+		iv = PROBE_INTERVAL_DEF_S;
+	u32 hb = n * iv;
+	u16 heartbeat = hb > 0xFFFE ? 0xFFFE : (u16)hb;
+	static const u16 attrs[] = {0xF000, 0xF001, ZCL_RELATIVE_HUMIDITY_ATTRID_MEASUREDVALUE};
+	for(int i = 0; i < 3; i++) {
+		reportCfgInfo_t *pEntry = zcl_reportCfgInfoEntryFind(SENSOR_DEVICE_ENDPOINT2, ZCL_CLUSTER_MS_RELATIVE_HUMIDITY, attrs[i]);
+		if(!pEntry)
+			continue;
+		if(attrs[i] != ZCL_RELATIVE_HUMIDITY_ATTRID_MEASUREDVALUE) {
+			pEntry->reportableChange[0] = change & 0xff;
+			pEntry->reportableChange[1] = change >> 8;
+		}
+		pEntry->maxInterval = heartbeat;
+		if(pEntry->maxIntCnt > heartbeat)
+			pEntry->maxIntCnt = heartbeat;
+	}
+}
+
+u8 g_probe_cal_capture = 0;	// attribute 0x012F (command: 1 = dry, 2 = wet)
+
+/* Store the current probe reading as the dry or wet calibration point. */
+static void probe_cal_capture(void) {
+	u8 which = g_probe_cal_capture;
+	g_probe_cal_capture = 0;
+	if(which != 1 && which != 2)
+		return;
+	read_rh_sensor_now();	// fresh reading with the current probe settings
+	u16 raw = g_zcl_MoistureAttrs.raw_adc;
+	u16 vbat = measured_battery.average_mv;	// for battery compensation of this point
+	if(which == 1) {
+		g_zcl_thermostatUICfgAttrs.probe_cal_dry = raw;
+		g_zcl_thermostatUICfgAttrs.probe_cal_dry_mv = vbat;
+	} else {
+		g_zcl_thermostatUICfgAttrs.probe_cal_wet = raw;
+		g_zcl_thermostatUICfgAttrs.probe_cal_wet_mv = vbat;
+	}
+	g_zcl_MoistureAttrs.measuredValue = probe_percent(raw);
+	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT, ZCL_CLUSTER_HAVC_USER_INTERFACE_CONFIG,
+			which == 1 ? PROBE_CAL_DRY_ATTRID : PROBE_CAL_WET_ATTRID);
+	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT, ZCL_CLUSTER_HAVC_USER_INTERFACE_CONFIG,
+			which == 1 ? PROBE_CAL_DRY_MV_ATTRID : PROBE_CAL_WET_MV_ATTRID);
+	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT2, ZCL_CLUSTER_MS_RELATIVE_HUMIDITY, 0xF000);
+	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT2, ZCL_CLUSTER_MS_RELATIVE_HUMIDITY, ZCL_RELATIVE_HUMIDITY_ATTRID_MEASUREDVALUE);
+	sws_printf("probe cal %s = %d\n", which == 1 ? "dry" : "wet", raw);
+}
+
+/* Probe sweep: one reading per settle time, each from cold, reported as it is taken. */
+static const u16 probe_sweep_ms[PROBE_SWEEP_N] = {1, 5, 20, 50, 100, 300, 1000};
+u16 g_probe_sweep[PROBE_SWEEP_N];	// EP2 attrs 0xF010.. raw ADC (x4); 0 = not measured yet
+u8 g_probe_sweep_cmd = 0;			// attribute 0x0130 (command: 1 = run)
+static u8 sweep_step;
+static ev_timer_event_t *sweepTimerEvt = NULL;
+
+static int probe_sweep_cb(void *arg) {
+	(void) arg;
+	g_probe_sweep[sweep_step] = probe_measure_raw(probe_sweep_ms[sweep_step]); // ends with PD3 off
+	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT2, ZCL_CLUSTER_MS_RELATIVE_HUMIDITY,
+			PROBE_SWEEP_RESULT_ATTRID + sweep_step);
+	sws_printf("sweep %d ms: %d\n", probe_sweep_ms[sweep_step], g_probe_sweep[sweep_step]);
+	if(++sweep_step < PROBE_SWEEP_N)
+		return 0;			// next point after another cold gap
+	sweepTimerEvt = NULL;
+	return -1;
+}
+
+static void probe_sweep_start(void) {
+	g_probe_sweep_cmd = 0;
+	if(sweepTimerEvt)
+		return;			// already running
+	sweep_step = 0;
+	sweepTimerEvt = TL_ZB_TIMER_SCHEDULE(probe_sweep_cb, NULL, PROBE_SWEEP_GAP_MS);
+}
+
+/* Side effects of a written probe config attribute (NV save happens in the caller). */
+void probe_cfg_written(u16 attrID) {
+	switch(attrID) {
+	case PROBE_SWEEP_ATTRID:
+		if(g_probe_sweep_cmd)
+			probe_sweep_start();
+		break;
+	case PROBE_REPORT_CHANGE_ATTRID:
+	case PROBE_HEARTBEAT_ATTRID:
+	case PROBE_INTERVAL_ATTRID:		// heartbeat scales with the probe interval
+		probe_apply_reporting();
+		break;
+	case PROBE_CAL_CAPTURE_ATTRID:
+		probe_cal_capture();
+		break;
+	case PROBE_CAL_DRY_ATTRID:
+	case PROBE_CAL_WET_ATTRID:
+	case PROBE_CAL_DRY_MV_ATTRID:
+	case PROBE_CAL_WET_MV_ATTRID:
+	case PROBE_COMP_SLOPE_DRY_ATTRID:
+	case PROBE_COMP_SLOPE_WET_ATTRID:
+		g_zcl_MoistureAttrs.measuredValue = probe_percent(g_zcl_MoistureAttrs.raw_adc);
+		break;
+	}
+}
+
+u8 g_debug_on = 0;			// attribute 0x0125
+static u16 debug_secs_left;
+static ev_timer_event_t *debugTimerEvt = NULL;
+static u8 debug_ticks;
+
+static int debug_timer_cb(void *arg) {
+	(void) arg;
+	if(!g_debug_on || !debug_secs_left || !zb_isDeviceJoinedNwk()) {
+		g_debug_on = 0;
+		debug_secs_left = 0;
+		debugTimerEvt = NULL;
+		set_PollRate();		// back to the normal long poll
+		app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT, ZCL_CLUSTER_HAVC_USER_INTERFACE_CONFIG, DEBUG_MODE_ATTRID);
+		sws_printf("debug mode off\n");
+		return -1;			// cancel timer
+	}
+	read_rh_sensor_now();	// PD3 + PWM + settle + ADC -> raw_adc / adc_diode
+	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT2, ZCL_CLUSTER_MS_RELATIVE_HUMIDITY, 0xF000);
+	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT2, ZCL_CLUSTER_MS_RELATIVE_HUMIDITY, 0xF001);
+	if(++debug_ticks >= 1000 / DEBUG_MODE_PERIOD_MS) {
+		debug_ticks = 0;
+		debug_secs_left--;
+	}
+	return 0;				// keep the period
+}
+
+/* Called after a write to DEBUG_MODE_ATTRID. On (re)starts the 10-min window;
+ * off stops at the next tick. */
+void debug_mode_update(void) {
+	if(!g_debug_on)
+		return;
+	g_debug_on = 1;
+	debug_secs_left = DEBUG_MODE_SEC;
+	if(!debugTimerEvt) {
+		debug_ticks = 0;
+		zb_setPollRate(1000);	// poll the parent every second so "off" arrives quickly
+		debugTimerEvt = TL_ZB_TIMER_SCHEDULE(debug_timer_cb, NULL, DEBUG_MODE_PERIOD_MS);
+		sws_printf("debug mode on: %d s\n", debug_secs_left);
+	}
+}
+#endif
+
 app_ctx_t g_sensorAppCtx;
 
 #if ZCL_OTA_SUPPORT
@@ -752,7 +923,7 @@ void user_app_init(void)
 		REPORTABLE_SENSOR_TIMER_MAX_SEC,
 		(u8 *)&reportableChange
 	);
-    reportableChange = 10; // raw soil ADC counts
+    reportableChange = g_zcl_thermostatUICfgAttrs.probe_report_change; // raw soil ADC counts (x4)
 	bdb_defaultReportingCfg(
 		SENSOR_DEVICE_ENDPOINT2,
 		HA_PROFILE_ID,
@@ -762,7 +933,7 @@ void user_app_init(void)
 		600, // 10-min heartbeat even if unchanged
 		(u8 *)&reportableChange
 	);
-    reportableChange = 10; // diode reference ADC counts
+    reportableChange = g_zcl_thermostatUICfgAttrs.probe_report_change; // diode reference ADC counts (x4)
 	bdb_defaultReportingCfg(
 		SENSOR_DEVICE_ENDPOINT2,
 		HA_PROFILE_ID,
@@ -821,6 +992,9 @@ void user_app_init(void)
 	switch_to_zb_context();
 	drv_restore_irq(r);
 #endif
+#if (DEV_SERVICES & SERVICE_PLM)
+	probe_apply_reporting(); // entries restored from NV keep their old settings otherwise
+#endif
 }
 
 /*********************************************************************
@@ -832,8 +1006,15 @@ void user_app_init(void)
  *
  * @return  None
  */
+#if defined(ARTECO_HW_TEST)
+void hw_test_run(void);
+#endif
+
 void user_init(bool isRetention)
 {
+#if defined(ARTECO_HW_TEST)
+	hw_test_run(); // bench test, never returns
+#endif
 
 #if ZBHCI_EN
 	zbhciInit();

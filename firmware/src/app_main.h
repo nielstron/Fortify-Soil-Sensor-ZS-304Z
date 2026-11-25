@@ -145,6 +145,22 @@ typedef struct {
 	u8 txpwr_min_dbm;    // adaptive lower bound (dBm)
 	u8 txpwr_max_dbm;    // adaptive upper bound (dBm)
 	u8 txpwr_fixed_dbm;  // level used when mode = fixed (dBm)
+	/* Soil probe timing (attrs 0x0126/0x0127) — persisted via NV with the UI cfg */
+	u16 probe_interval_s; // probe measured at most this often (s); T/RH keep measureInterval
+	u16 probe_settle_ms;  // probe power + PWM on -> ADC read (ms)
+	u16 probe_report_change; // raw 0xF000/0xF001 reportable change (ADC counts x4)
+	u8  probe_samples;    // ADC reads averaged per probe phase (1..16)
+	u8  probe_heartbeat_n; // unchanged probe values re-sent every N probe intervals
+	u16 probe_pwm_khz;    // probe excitation frequency (kHz)
+	u8  probe_pwm_duty;   // probe excitation duty (%)
+	u16 probe_cal_dry;    // raw ADC (x4) at 0 % moisture; 0 = not calibrated
+	u16 probe_cal_wet;    // raw ADC (x4) at 100 % moisture; 0 = not calibrated
+	/* Battery compensation of the calibration points (stock Arteco model: both
+	 * end points move linearly with the battery voltage). */
+	u16 probe_cal_dry_mv; // battery mV when the dry point was taken; 0 = no compensation
+	u16 probe_cal_wet_mv; // battery mV when the wet point was taken; 0 = no compensation
+	u16 probe_comp_slope_dry; // dry point shift per battery mV, in 1/1000 probe-mV (stock 905)
+	u16 probe_comp_slope_wet; // wet point shift per battery mV, in 1/1000 probe-mV (stock 804)
 }zcl_thermostatUICfgAttr_t;
 
 /* Adaptive TX power control (implemented in app_main.c) */
@@ -154,6 +170,57 @@ void tpc_apply(void);
 void tpc_note_tx(u8 status);
 void tpc_boost_max(void);
 void sensorDevice_dataCnfCb(void *arg);
+
+/* Debug mode (UI cfg attr 0x0125, boolean, RAM only): while on, measure the probe
+ * every DEBUG_MODE_PERIOD_MS and report raw 0xF000/0xF001 to the coordinator;
+ * switches itself off after DEBUG_MODE_SEC and reports the attribute as off. */
+#define DEBUG_MODE_ATTRID		0x0125
+#define DEBUG_MODE_PERIOD_MS	500
+#define DEBUG_MODE_SEC			600
+extern u8 g_debug_on;
+void debug_mode_update(void);
+status_t app_report_to_coordinator(u8 endpoint, u16 cluster_id, u16 attr_id);
+int read_rh_sensor_now(void);	// sensor_rh.c: measure the probe regardless of probe_interval_s
+u16 probe_measure_raw(u32 settle_ms);	// sensor_rh.c: one reading at an explicit settle time
+
+/* Probe sweep: write 1 to UI cfg attr 0x0130 -> the probe is measured once at
+ * each settle time below, from cold (PD3 off PROBE_SWEEP_GAP_MS before each),
+ * and each raw result is reported on EP2 attr 0xF010 + i. */
+#define PROBE_SWEEP_ATTRID		0x0130
+#define PROBE_SWEEP_RESULT_ATTRID	0xF010
+#define PROBE_SWEEP_N			7
+#define PROBE_SWEEP_GAP_MS		1000
+extern u8 g_probe_sweep_cmd;
+extern u16 g_probe_sweep[PROBE_SWEEP_N];
+
+#define PROBE_INTERVAL_ATTRID	0x0126
+#define PROBE_SETTLE_ATTRID		0x0127
+#define PROBE_REPORT_CHANGE_ATTRID	0x0128
+#define PROBE_SAMPLES_ATTRID	0x0129
+#define PROBE_HEARTBEAT_ATTRID	0x012A
+#define PROBE_PWM_KHZ_ATTRID	0x012B
+#define PROBE_PWM_DUTY_ATTRID	0x012C
+#define PROBE_CAL_DRY_ATTRID	0x012D
+#define PROBE_CAL_WET_ATTRID	0x012E
+#define PROBE_CAL_CAPTURE_ATTRID	0x012F	// write 1 = dry, 2 = wet: store the current reading
+#define PROBE_CAL_DRY_MV_ATTRID		0x0131
+#define PROBE_CAL_WET_MV_ATTRID		0x0132
+#define PROBE_COMP_SLOPE_DRY_ATTRID	0x0133
+#define PROBE_COMP_SLOPE_WET_ATTRID	0x0134
+#define PROBE_INTERVAL_MIN_S	10
+#define PROBE_SETTLE_MAX_MS		1000
+#define PROBE_SAMPLES_MAX		16
+#define PROBE_HEARTBEAT_N_MAX	100
+#define PROBE_PWM_KHZ_MIN		10
+#define PROBE_PWM_KHZ_MAX		2000
+extern u8 g_probe_cal_capture;
+void probe_apply_reporting(void);	// app_main.c: threshold 0x0128 + heartbeat 0x012A into the reporting table
+void probe_cfg_written(u16 attrID);	// app_main.c: side effects of a written probe config attribute
+u16 probe_percent(u16 raw);			// sensor_rh.c: moisture in 0.01 % from the dry/wet points, 0xffff if uncalibrated
+
+/* Parents hold frames for a sleepy child only ~7.68 s (Zigbee default), so the
+ * device polls at least this often regardless of the measurement interval. */
+#define LONG_POLL_MAX_SEC		7
 
 
 /**

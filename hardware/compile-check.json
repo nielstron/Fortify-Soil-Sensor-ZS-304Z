@@ -13,5 +13,9 @@
   "pwm_id": "PWM4_ID",
   "adc_pin": "PB5",
   "adc_channel": 6,
-  "i2c_group": "I2C_GPIO_GROUP_C0C1"
+  "i2c_group": "I2C_GPIO_GROUP_C0C1",
+  "probe_power_pin": "PD3",
+  "probe_power_active": 1,
+  "light_adc_pin": "PB6",
+  "light_adc_channel": 7
 }

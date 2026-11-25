@@ -24,12 +24,13 @@ def gpio(value):
 def board_header(profile):
     button, led = gpio(profile['button']), gpio(profile['led'])
     drive, sense = gpio(profile['pwm_pin']), gpio(profile['adc_pin'])
-    if len({button, led, drive, sense}) != 4:
-        raise ValueError('Button, LED, probe drive and ADC must use distinct GPIOs')
+    power = gpio(profile['probe_power_pin'])
+    if len({button, led, drive, sense, power}) != 5:
+        raise ValueError('Button, LED, probe drive, ADC and probe power must use distinct GPIOs')
     for key, prefix in [('pwm_function', 'AS_PWM'), ('pwm_id', 'PWM'), ('i2c_group', 'I2C_GPIO_GROUP_')]:
         if not re.fullmatch(prefix + r'[A-Z0-9_]+', profile[key]):
             raise ValueError(f'Invalid {key}: {profile[key]}')
-    if profile['button_active'] not in (0, 1) or profile['led_active'] not in (0, 1):
+    if any(profile[k] not in (0, 1) for k in ('button_active', 'led_active', 'probe_power_active')):
         raise ValueError('Active levels must be 0 or 1')
     if not 1 <= profile['adc_channel'] <= 13:
         raise ValueError('Invalid ADC channel')
@@ -37,8 +38,14 @@ def board_header(profile):
 #ifndef BOARD_ARTECO_ZS304Z_H
 #define BOARD_ARTECO_ZS304Z_H
 #define ARTECO_PINMAP_VERIFIED {int(profile['verified'])}
-#if !ARTECO_PINMAP_VERIFIED && !defined(ARTECO_COMPILE_CHECK)
+#if !ARTECO_PINMAP_VERIFIED && !defined(ARTECO_COMPILE_CHECK) && !defined(ARTECO_HW_TEST)
 #error "Arteco pin map is unverified; measure the board before a hardware build"
+#endif
+#if defined(ARTECO_HW_TEST)
+/* Bench test image: no Zigbee, printf on the SWS pad (1 Mbaud, fixed in sws_printf.h). */
+#define GPIO_PRINTF_MODE 1
+#define GPIO_LIGHT GPIO_{gpio(profile['light_adc_pin'])}
+#define CHNL_LIGHT {profile['light_adc_channel']}
 #endif
 #define DEV_SERVICES (SERVICE_ZIGBEE | SERVICE_OTA | SERVICE_THS | SERVICE_PLM | SERVICE_LED)
 #define BLE_MODEL_STR "ZS-304Z-Raw"
@@ -60,7 +67,7 @@ def board_header(profile):
 #define USE_SENSOR_CHT8215 1
 #define USE_SENSOR_AHT20_30 1
 #define USE_SENSOR_SHT4X 1
-#define USE_SENSOR_SHTC3 0
+#define USE_SENSOR_SHTC3 1
 #define USE_SENSOR_SHT30 1
 #define LED_ON {profile['led_active']}
 #define LED_OFF {1 - profile['led_active']}
@@ -80,6 +87,27 @@ def board_header(profile):
 #define PWM_ID {profile['pwm_id']}
 #define GPIO_RHI GPIO_{sense}
 #define CHNL_RHI {profile['adc_channel']}
+/* Probe/light front-end supply; stock firmware powers it only while measuring. */
+#define GPIO_PROBE_PWR GPIO_{power}
+#define PROBE_PWR_ON {profile['probe_power_active']}
+#define {power}_FUNC AS_GPIO
+#define {power}_OUTPUT_ENABLE 1
+#define {power}_INPUT_ENABLE 0
+#define {power}_DATA_OUT {1 - profile['probe_power_active']}
+/* Stock Arteco acquisition: 100 kHz, 50 % PWM (24 MHz PWM clock), 300 ms settle.
+ * Probe interval and settle time are runtime config (attrs 0x0126/0x0127); these are defaults. */
+#define PWM_CYCLE 240
+#define PWM_PULSE 120
+#define PROBE_PWM_KHZ_DEF 100
+#define PROBE_PWM_DUTY_DEF 50
+#define PROBE_HEARTBEAT_N_DEF 6
+/* Stock firmware (disassembly): dry = 900/995*V - 248, wet = 800/995*V - 347 (mV) */
+#define PROBE_COMP_SLOPE_DRY_DEF 905
+#define PROBE_COMP_SLOPE_WET_DEF 804
+#define PROBE_INTERVAL_DEF_S 600
+#define PROBE_SETTLE_DEF_MS 300
+#define PROBE_SAMPLES_DEF 4
+#define PROBE_REPORT_CHANGE_DEF 40
 #if ZBHCI_UART
 #error "UART pin assignments have not been validated for Arteco"
 #endif
@@ -97,14 +125,17 @@ def main():
     group.add_argument('--profile', type=Path, help='Measured and verified Arteco hardware JSON')
     parser.add_argument('--source', type=Path, help='Local pinned pvvx clone to copy instead of fetching')
     parser.add_argument('--native', action='store_true', help='Build on Linux amd64 without Docker')
+    parser.add_argument('--hw-test', action='store_true', help='With --profile: bench test image (no Zigbee, printf on SWS) to verify an unverified profile')
     args = parser.parse_args()
+    if args.hw_test and args.compile_check:
+        parser.error('--hw-test needs --profile')
     profile_path = ROOT / 'hardware/compile-check.json' if args.compile_check else args.profile.resolve()
     profile = json.loads(profile_path.read_text())
-    if not args.compile_check and not profile['verified']:
+    if not args.compile_check and not args.hw_test and not profile['verified']:
         parser.error('Arteco GPIOs are not verified. Complete hardware/arteco-zssf21.json first.')
     header = board_header(profile)
     lock = json.loads((ROOT / 'firmware/upstream.json').read_text())
-    work = ROOT / 'build' / ('compile-check' if args.compile_check else 'arteco')
+    work = ROOT / 'build' / ('compile-check' if args.compile_check else 'hwtest' if args.hw_test else 'arteco')
     work.mkdir(parents=True, exist_ok=True)
     source = work / 'ZigbeeTLc'
     if source.exists():
@@ -123,6 +154,8 @@ def main():
     cfg = source / 'src/app_cfg.h'
     cfg.write_text(cfg.read_text().replace('#elif BOARD == BOARD_ZG303Z', '#elif BOARD == BOARD_ARTECO_ZS304Z\n#include "board_arteco_zs304z.h"\n#elif BOARD == BOARD_ZG303Z'))
     (source / 'src/board_arteco_zs304z.h').write_text(header)
+    srcmk = source / 'make_z/src.mk'
+    srcmk.write_text(srcmk.read_text() + '\nOBJS += $(OUT_PATH)$(SRC_DIR)/hw_test.o\n')
     script = '''set -eu
 cd /work/build/REPLACE/ZigbeeTLc
 tar -xjf tools/linux/tc32_gcc_v2.0.tar.bz2 -C tools/linux
@@ -131,7 +164,7 @@ make PYTHON=python3 PROJECT_NAME=ZS304Z BIN_PATH=./arteco-bin POJECT_DEF="-DBOAR
 make -j2 PYTHON=python3 PROJECT_NAME=ZS304Z BIN_PATH=./arteco-bin POJECT_DEF="-DBOARD=BOARD_ARTECO_ZS304Z CHECK_FLAG" ZNAME=Fortify-Arteco-ZS304Z-Raw BUILD_TARGETS
 tools/linux/tc32/bin/tc32-elf-nm --defined-only build/ZS304Z.elf > build/symbols.txt
 tools/linux/tc32/bin/tc32-elf-objcopy -O binary -j .vectors build/ZS304Z.elf build/vectors.dat
-'''.replace('REPLACE', work.name).replace('CHECK_FLAG', '-DARTECO_COMPILE_CHECK=1' if args.compile_check else '').replace('BUILD_TARGETS', 'build/ZS304Z.elf build/ZS304Z.lst sizedummy' if args.compile_check else 'all')
+'''.replace('REPLACE', work.name).replace('CHECK_FLAG', '-DARTECO_COMPILE_CHECK=1' if args.compile_check else '-DARTECO_HW_TEST=1' if args.hw_test else '').replace('BUILD_TARGETS', 'build/ZS304Z.elf build/ZS304Z.lst sizedummy' if args.compile_check else 'all')
     if args.native:
         script = script.replace('/work', str(ROOT))
         run('sh', '-c', script)
