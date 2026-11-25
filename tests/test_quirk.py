@@ -69,9 +69,9 @@ class QuirkContractTest(unittest.IsolatedAsyncioTestCase):
         for name, attr_id in expected.items():
             self.assertEqual(ui.attributes_by_name[name].id, attr_id)
         entry = DEVICE_REGISTRY.match_entry(device).zha_device_factory.quirk_definition
-        buttons = sorted(m.attribute_value for m in entry.entity_metadata
-                         if m.attribute_name == 'probe_cal_capture' and type(m).__name__ == 'WriteAttributeButtonMetadata')
-        self.assertEqual(buttons, [1, 2])
+        cal = sorted((m.on_value, m.off_value) for m in entry.entity_metadata
+                     if m.attribute_name == 'probe_cal_capture' and type(m).__name__ == 'SwitchMetadata')
+        self.assertEqual(cal, [(1, 0), (2, 0)])
         moisture = next(m for m in entry.entity_metadata if m.attribute_name == 'measured_value')
         self.assertEqual((moisture.endpoint_id, moisture.divisor, moisture.device_class.value), (2, 100, 'moisture'))
         # ZHA's default "Humidity" entity on the EP2 soil cluster is suppressed in favour of "Soil moisture"
@@ -85,8 +85,10 @@ class QuirkContractTest(unittest.IsolatedAsyncioTestCase):
         for i, ms in enumerate(settle_ms):
             self.assertEqual(soil.attributes_by_name[f'sweep_{ms}ms'].id, 0xF010 + i)
         metadata = DEVICE_REGISTRY.match_entry(device).zha_device_factory.quirk_definition.entity_metadata
-        button = [m for m in metadata if m.attribute_name == 'probe_sweep']
-        self.assertEqual([(type(m).__name__, m.attribute_value) for m in button], [('WriteAttributeButtonMetadata', 1)])
+        sweep = [m for m in metadata if m.attribute_name == 'probe_sweep']
+        self.assertEqual([(type(m).__name__, m.on_value, m.off_value) for m in sweep], [('SwitchMetadata', 1, 0)])
+        self.assertEqual(device.endpoints[1].thermostat_ui.attributes_by_name['rehome'].id, 0x0137)
+        self.assertEqual([type(m).__name__ for m in metadata if m.attribute_name == 'rehome'], ['SwitchMetadata'])
         sensors = [m for m in metadata if m.attribute_name.startswith('sweep_')]
         self.assertEqual(sorted(m.attribute_name for m in sensors), sorted(f'sweep_{ms}ms' for ms in settle_ms))
         self.assertTrue(all(m.endpoint_id == 2 and m.entity_type.value == 'diagnostic' for m in sensors))

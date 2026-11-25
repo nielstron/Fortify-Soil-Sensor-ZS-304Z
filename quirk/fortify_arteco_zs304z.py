@@ -39,82 +39,88 @@ class CustomUserInterfaceCluster(CustomCluster, UserInterface):
 
     class AttributeDefs(UserInterface.AttributeDefs):
         temperature_offset = ZCLAttributeDef(
-            id=0x0100, type=t.int16s, access="rw", is_manufacturer_specific=True
+            id=0x0100, type=t.int16s, access="rw", is_manufacturer_specific=False
         )
         humidity_offset = ZCLAttributeDef(
-            id=0x0101, type=t.int16s, access="rw", is_manufacturer_specific=True
+            id=0x0101, type=t.int16s, access="rw", is_manufacturer_specific=False
         )
         measurement_interval = ZCLAttributeDef(
-            id=0x0107, type=t.uint8_t, access="rw", is_manufacturer_specific=True
+            id=0x0107, type=t.uint8_t, access="rw", is_manufacturer_specific=False
         )
         # Adaptive TX power control (Fortify firmware >= 0x01413001)
         tx_power_mode = ZCLAttributeDef(
-            id=0x0120, type=t.uint8_t, access="rw", is_manufacturer_specific=True
+            id=0x0120, type=t.uint8_t, access="rw", is_manufacturer_specific=False
         )
         tx_power_min = ZCLAttributeDef(
-            id=0x0121, type=t.uint8_t, access="rw", is_manufacturer_specific=True
+            id=0x0121, type=t.uint8_t, access="rw", is_manufacturer_specific=False
         )
         tx_power_max = ZCLAttributeDef(
-            id=0x0122, type=t.uint8_t, access="rw", is_manufacturer_specific=True
+            id=0x0122, type=t.uint8_t, access="rw", is_manufacturer_specific=False
         )
         tx_power_fixed = ZCLAttributeDef(
-            id=0x0123, type=t.uint8_t, access="rw", is_manufacturer_specific=True
+            id=0x0123, type=t.uint8_t, access="rw", is_manufacturer_specific=False
         )
         tx_power_current = ZCLAttributeDef(
-            id=0x0124, type=t.int8s, access="rp", is_manufacturer_specific=True
+            id=0x0124, type=t.int8s, access="rp", is_manufacturer_specific=False
         )
         # Debug mode: 500 ms raw-probe reports, auto-off after 10 min (RAM only)
         debug_mode = ZCLAttributeDef(
-            id=0x0125, type=t.Bool, access="rwp", is_manufacturer_specific=True
+            id=0x0125, type=t.Bool, access="rwp", is_manufacturer_specific=False
         )
         # Soil probe timing (saved on the device)
         probe_interval = ZCLAttributeDef(
-            id=0x0126, type=t.uint16_t, access="rw", is_manufacturer_specific=True
+            id=0x0126, type=t.uint16_t, access="rw", is_manufacturer_specific=False
         )
         probe_settle_time = ZCLAttributeDef(
-            id=0x0127, type=t.uint16_t, access="rw", is_manufacturer_specific=True
+            id=0x0127, type=t.uint16_t, access="rw", is_manufacturer_specific=False
         )
         probe_report_change = ZCLAttributeDef(
-            id=0x0128, type=t.uint16_t, access="rw", is_manufacturer_specific=True
+            id=0x0128, type=t.uint16_t, access="rw", is_manufacturer_specific=False
         )
         probe_samples = ZCLAttributeDef(
-            id=0x0129, type=t.uint8_t, access="rw", is_manufacturer_specific=True
+            id=0x0129, type=t.uint8_t, access="rw", is_manufacturer_specific=False
         )
         probe_heartbeat = ZCLAttributeDef(
-            id=0x012A, type=t.uint8_t, access="rw", is_manufacturer_specific=True
+            id=0x012A, type=t.uint8_t, access="rw", is_manufacturer_specific=False
         )
         probe_pwm_frequency = ZCLAttributeDef(
-            id=0x012B, type=t.uint16_t, access="rw", is_manufacturer_specific=True
+            id=0x012B, type=t.uint16_t, access="rw", is_manufacturer_specific=False
         )
         probe_pwm_duty = ZCLAttributeDef(
-            id=0x012C, type=t.uint8_t, access="rw", is_manufacturer_specific=True
+            id=0x012C, type=t.uint8_t, access="rw", is_manufacturer_specific=False
         )
         probe_cal_dry = ZCLAttributeDef(
-            id=0x012D, type=t.uint16_t, access="rwp", is_manufacturer_specific=True
+            id=0x012D, type=t.uint16_t, access="rwp", is_manufacturer_specific=False
         )
         probe_cal_wet = ZCLAttributeDef(
-            id=0x012E, type=t.uint16_t, access="rwp", is_manufacturer_specific=True
+            id=0x012E, type=t.uint16_t, access="rwp", is_manufacturer_specific=False
         )
         # Command: write 1 / 2 to store the current reading as the dry / wet point
         probe_cal_capture = ZCLAttributeDef(
-            id=0x012F, type=t.uint8_t, access="rw", is_manufacturer_specific=True
+            id=0x012F, type=t.uint8_t, access="rwp", is_manufacturer_specific=False
         )
-        # Command: write 1 to run a probe sweep (results on EP2 0xF010..0xF016)
+        # Command: write 1 to run a probe sweep (results on EP2 0xF010..0xF016);
+        # reported back as 0 when the sweep has finished
         probe_sweep = ZCLAttributeDef(
-            id=0x0130, type=t.uint8_t, access="rw", is_manufacturer_specific=True
+            id=0x0130, type=t.uint8_t, access="rwp", is_manufacturer_specific=False
+        )
+        # Command: write 1 to rejoin through the best parent in range; reported
+        # back as 0 just before the device starts the rejoin
+        rehome = ZCLAttributeDef(
+            id=0x0137, type=t.uint8_t, access="rwp", is_manufacturer_specific=False
         )
         # Battery compensation of the calibration points (stock Arteco model)
         probe_cal_dry_voltage = ZCLAttributeDef(
-            id=0x0131, type=t.uint16_t, access="rwp", is_manufacturer_specific=True
+            id=0x0131, type=t.uint16_t, access="rwp", is_manufacturer_specific=False
         )
         probe_cal_wet_voltage = ZCLAttributeDef(
-            id=0x0132, type=t.uint16_t, access="rwp", is_manufacturer_specific=True
+            id=0x0132, type=t.uint16_t, access="rwp", is_manufacturer_specific=False
         )
         probe_comp_slope_dry = ZCLAttributeDef(
-            id=0x0133, type=t.uint16_t, access="rw", is_manufacturer_specific=True
+            id=0x0133, type=t.uint16_t, access="rw", is_manufacturer_specific=False
         )
         probe_comp_slope_wet = ZCLAttributeDef(
-            id=0x0134, type=t.uint16_t, access="rw", is_manufacturer_specific=True
+            id=0x0134, type=t.uint16_t, access="rw", is_manufacturer_specific=False
         )
 
 
@@ -324,18 +330,22 @@ builder = (
         fallback_name="Probe calibration wet (raw, 0 = unset)",
         mode="box",
     )
-    .write_attr_button(
+    # Command switches: on = pending/running, the device switches them back off
+    # (reports 0) once the calibration point is stored.
+    .switch(
         CustomUserInterfaceCluster.AttributeDefs.probe_cal_capture.name,
-        1,
         CustomUserInterfaceCluster.cluster_id,
+        on_value=1,
+        off_value=0,
         unique_id_suffix="cal_dry_now",
         translation_key="probe_cal_dry_now",
         fallback_name="Calibrate dry (use current reading)",
     )
-    .write_attr_button(
+    .switch(
         CustomUserInterfaceCluster.AttributeDefs.probe_cal_capture.name,
-        2,
         CustomUserInterfaceCluster.cluster_id,
+        on_value=2,
+        off_value=0,
         unique_id_suffix="cal_wet_now",
         translation_key="probe_cal_wet_now",
         fallback_name="Calibrate wet (use current reading)",
@@ -419,12 +429,17 @@ builder = (
         fallback_name="Battery compensation slope wet (stock 804)",
         mode="box",
     )
-    .write_attr_button(
+    .switch(
         CustomUserInterfaceCluster.AttributeDefs.probe_sweep.name,
-        1,
         CustomUserInterfaceCluster.cluster_id,
         translation_key="probe_sweep",
         fallback_name="Run probe sweep",
+    )
+    .switch(
+        CustomUserInterfaceCluster.AttributeDefs.rehome.name,
+        CustomUserInterfaceCluster.cluster_id,
+        translation_key="rehome",
+        fallback_name="Find better parent (rejoin)",
     )
 )
 for _ms in PROBE_SWEEP_MS:
