@@ -1,5 +1,6 @@
 {
   "repository": "https://github.com/pvvx/ZigbeeTLc.git",
-  "revision": "bda98388738e35897bfe230b74211bcecb4dc039",
-  "fortify_revision": "e0488203e546f0596c24137750f9f32bddf7029a"
+  "revision": "c249d8a7caddb5012d06aba580d4a53d1957f9c1",
+  "fortify_revision": "e0488203e546f0596c24137750f9f32bddf7029a",
+  "fortify_patch_base": "bda98388738e35897bfe230b74211bcecb4dc039"
 }

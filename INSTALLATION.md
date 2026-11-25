@@ -48,7 +48,7 @@ Other build modes:
 - `--compile-check` uses `hardware/compile-check.json` (reference pins, no flashable output) and is what CI runs.
 - `--hw-test` builds a bench test image without Zigbee (see section 7).
 
-Build details: pvvx [ZigbeeTLc](https://github.com/pvvx/ZigbeeTLc) is pinned in `firmware/upstream.json` and patched with the original Fortify changes and the overlay in `firmware/src/`. Board target `BOARD_ARTECO_ZS304Z` (private board ID 126), manufacturer/model **Fortify / ZS-304Z-Raw**, OTA image type **0xF304**. `build.py` generates the board header from the hardware profile and checks the TLSR8251 memory limits.
+Build details: pvvx [ZigbeeTLc](https://github.com/pvvx/ZigbeeTLc) is pinned in `firmware/upstream.json`, and the files in `firmware/src/` replace their upstream versions. They contain the original Fortify changes (`firmware/fortify_zg303z.patch`, against the older pvvx revision `fortify_patch_base`) and this port's changes. When moving the pin, merge the upstream changes into these files (3-way, base = the old pin). Board target `BOARD_ARTECO_ZS304Z` (private board ID 126), manufacturer/model **Fortify / ZS-304Z-Raw**, OTA image type **0xF304**. `build.py` generates the board header from the hardware profile and checks the TLSR8251 memory limits.
 
 ## 4. Flash
 
@@ -124,7 +124,7 @@ Raw values are on endpoint 2: **Soil raw ADC** (`0xF000`) and **Soil ADC referen
 
 **Probe sweep:** the probe output charges like an RC filter, `V(t) = V_end·(1 − e^(−t/τ))`, with τ ≈ 18 ms in air. The ratio r of the 20 ms to the 300 ms reading gives τ = −20 ms / ln(1 − r). In moist potting soil the sweep gave 774 / 2304 / 5547 / 7777 / 8429 / 8538 / 8516 at 1 / 5 / 20 / 50 / 100 / 300 / 1000 ms, i.e. τ ≈ 19 ms, the same as in air. So a settle time of ~7τ (≈ 130–150 ms) is enough; the default 300 ms has margin.
 
-**Link monitoring:** the device tracks its last 10 data polls and sent messages. 3 failures among them make it rejoin through the best parent at full TX power, at most once per 24 h to protect the battery. A completely lost parent is recovered by the stack's rejoin with backoff.
+**Link monitoring:** the device tracks its last 10 data polls and sent messages. 3 failures among them make it rejoin through the best parent at full TX power, at most once per 24 h to protect the battery. A completely lost parent is recovered by pvvx's rejoin backoff: 30 s, 1, 2, 5, 10, 20, then every 30 min, first on the last known channel.
 
 **Battery:** with the defaults, the average draw is estimated at ~11 µA (about half of it the 7 s polling), i.e. beyond the shelf life of 2×AAA. Short probe intervals and long debug sessions are what cost battery: debug mode uses about as much in 10 min as two days of normal operation.
 

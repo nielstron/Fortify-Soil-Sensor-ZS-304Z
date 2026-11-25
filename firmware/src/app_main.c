@@ -17,13 +17,16 @@
 #include "app_onoff.h"
 #include "zcl_relative_humidity.h"
 #include "zcl_illuminance_level_sensing.h"
+#ifdef ZCL_DIHUMIDIFICATION_CONTROL
+#include "zcl_dehumidification_control.h"
+#endif
 #include "chip_8258/timer.h"
 #include "sensor_th.h"
 #include "battery.h"
 #include "lcd.h"
 #include "reporting.h"
 #include "ext_ota.h"
-//#include "zcl_thermostat_ui_cfg.h"
+#include "zcl_thermostat_ui_cfg.h"
 #if USE_BLE
 #include "ble_cfg.h"
 #include "zigbee_ble_switch.h"
@@ -43,7 +46,12 @@
 #if USE_SENSOR_XBR818
 #include "sensor_xbr818.h"
 #endif
-
+#if USE_SENSOR_RC2417
+#include "sensor_rc2417.h"
+#endif
+#if (BOARD == BOARD_ZG223Z)
+#include "sensors_zg223z.h"
+#endif
 
 /**********************************************************************
  * LOCAL CONSTANTS
@@ -319,7 +327,7 @@ static int probe_reset_cb(void *arg) {
 	c->probe_comp_slope_dry = d->probe_comp_slope_dry;
 	c->probe_comp_slope_wet = d->probe_comp_slope_wet;
 	g_probe_reset_cmd = 0;		// switch feedback
-	zcl_thermostatConfig_save();
+	zcl_thermostatConfig_save(0);
 	probe_apply_reporting();
 	g_zcl_MoistureAttrs.measuredValue = probe_percent(g_zcl_MoistureAttrs.raw_adc);
 	app_report_config();
@@ -388,7 +396,7 @@ static int probe_cal_capture_cb(void *arg) {
 			which == 1 ? PROBE_CAL_DRY_MV_ATTRID : PROBE_CAL_WET_MV_ATTRID);
 	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT2, ZCL_CLUSTER_MS_RELATIVE_HUMIDITY, 0xF000);
 	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT2, ZCL_CLUSTER_MS_RELATIVE_HUMIDITY, ZCL_RELATIVE_HUMIDITY_ATTRID_MEASUREDVALUE);
-	zcl_thermostatConfig_save();	// the write handler saved before this ran
+	zcl_thermostatConfig_save(0);	// the write handler saved before this ran
 	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT, ZCL_CLUSTER_HAVC_USER_INTERFACE_CONFIG,
 			PROBE_CAL_CAPTURE_ATTRID);	// switch feedback: back to off
 	sws_printf("probe cal %s = %d\n", which == 1 ? "dry" : "wet", raw);
@@ -702,8 +710,12 @@ void show_th(void) {
 
 
 void read_sensor_and_show(void) {
-#if USE_SENSOR_LX == 1
+#if (USE_SENSOR_LX == 1) || ((USE_SENSOR_LX == 2) && !USE_SENSOR_TH) || (USE_SENSOR_RND)
+#if (USE_SENSOR_RND)
+	read_sensors();
+#else
 	read_illumi_sensor();
+#endif
 #ifdef ZCL_POWER_CFG
 	g_zcl_powerAttrs.batteryVoltage = (u8)((measured_battery.average_mv + 50) / 100);
 	g_zcl_powerAttrs.batteryPercentage = (u8)measured_battery.level;
@@ -727,7 +739,9 @@ void read_sensor_and_show(void) {
 #endif
 #if	USE_DISPLAY
 #ifdef ZCL_THERMOSTAT_UI_CFG
-    if(!g_zcl_thermostatUICfgAttrs.display_off) {
+    if(!g_zcl_thermostatUICfgAttrs.display_off
+    	// no redraw over the reset screen while the button is held
+    	&& !(g_sensorAppCtx.keyPressed && clock_time_exceed(g_sensorAppCtx.keyPressedTime, BUTTON_ZIGBEE_RESET_MS * 1000))) {
 #endif // ZCL_THERMOSTAT_UI_CFG
     	if(sensor_ht.flag & FLG_MEASURE_HT_LCD) {
     		sensor_ht.flag &= ~FLG_MEASURE_HT_LCD;
@@ -766,7 +780,7 @@ s32 sensors_task(void *arg) {
 		if(tt - g_sensorAppCtx.readSensorTime >= g_sensorAppCtx.measureInterval) {
 			g_sensorAppCtx.readSensorTime = tt;
 			read_sensor_and_show();
-#if USE_SENSOR_LX == 1
+#if (USE_SENSOR_LX == 1) || ((USE_SENSOR_LX == 2) && !USE_SENSOR_TH)
 			g_sensorAppCtx.reportFlg = FLG_CHECK_REPORT; // check report table
 #endif
 		}
@@ -774,12 +788,26 @@ s32 sensors_task(void *arg) {
 #ifdef USE_EPD
 	task_lcd();
 #endif
-#if !USE_BLE && USE_DISPLAY
-	if(zb_isDeviceJoinedNwk())
-			return -1; // delete timer
-#endif
 	return 0;
 }
+
+#if !USE_BLE
+#if USE_DISPLAY
+#define SENSORS_TIMER_MS	(g_zcl_pollCtrlAttrs.longPollInterval * POLL_RATE_QUARTERSECONDS)
+#else
+#define SENSORS_TIMER_MS	(600 * 1000) // only keeps a wake-up timer
+#endif
+
+/* Clears the handle before the timer is deleted: the timer slot can be reused */
+s32 sensors_timer_cb(void *arg) {
+	sensors_task(arg);
+	if(zb_isDeviceJoinedNwk() && !g_sensorAppCtx.linkDown) {
+		g_sensorAppCtx.timerTaskEvt = NULL;
+		return -1; // delete timer
+	}
+	return 0;
+}
+#endif
 
 /**********************************************************************
  * FUNCTIONS
@@ -799,8 +827,10 @@ void app_task(void)
 		if(zb_isDeviceJoinedNwk()) {
 #if	USE_DISPLAY
 			if(!g_zcl_thermostatUICfgAttrs.display_off) {
-				if(!g_sensorAppCtx.timerLedEvt)
+				if(!g_sensorAppCtx.timerLedEvt) {
 					show_connected_symbol(true);
+					update_lcd();
+				}
 			}
 #ifdef USE_BLINK_LED
 			if(!g_sensorAppCtx.timerLedEvt)
@@ -828,8 +858,10 @@ void app_task(void)
 		} else { // Device not Joined
 #if	USE_DISPLAY
 			if(!g_zcl_thermostatUICfgAttrs.display_off) {
-				if(!g_sensorAppCtx.timerLedEvt)
+				if(!g_sensorAppCtx.timerLedEvt) {
 					show_connected_symbol(false);
+					update_lcd();
+				}
 			}
 #ifdef USE_BLINK_LED
 			if(!g_sensorAppCtx.timerLedEvt)
@@ -852,6 +884,12 @@ void app_task(void)
 		} else
 #endif // USE_SENSOR_TH
 		{
+			// no timer: the device would sleep until a button press
+			if(!g_sensorAppCtx.timerTaskEvt) {
+				ev_timer_event_t *n = ev_timer_nearestGet();
+				if(!n || n->timeout > SENSORS_TIMER_MS + 1000)
+					g_sensorAppCtx.timerTaskEvt = TL_ZB_TIMER_SCHEDULE(sensors_timer_cb, NULL, SENSORS_TIMER_MS);
+			}
 			sws_buffer_flush();
 			drv_pm_lowPowerEnter();
 		}
@@ -944,6 +982,9 @@ void user_app_init(void)
 #if USE_SENSOR_XBR818
 	xbr818_init();
 #endif
+#if USE_SENSOR_RC2417
+	rc2417_init();
+#endif
 	init_sensor();
 
 #if	USE_DISPLAY
@@ -1027,6 +1068,7 @@ void user_app_init(void)
 	);
 #endif
 #ifdef ZCL_ON_OFF
+#if !NOT_INPYT_ONOFF
     reportableChange = 0;
     bdb_defaultReportingCfg(
     	SENSOR_DEVICE_ENDPOINT,
@@ -1035,6 +1077,7 @@ void user_app_init(void)
 		ZCL_ATTRID_ONOFF,
         0, 3600,
 		(u8 *)&reportableChange);
+#endif
 #endif
 #ifdef ZCL_ILLUMINANCE_MEASUREMENT
         reportableChange = 10;
@@ -1140,6 +1183,19 @@ void user_app_init(void)
 			(u8 *)&reportableChange
 		);
 #endif
+#ifdef ZCL_DIHUMIDIFICATION_CONTROL
+    	reportableChange = 0;
+		bdb_defaultReportingCfg(
+			SENSOR_DEVICE_ENDPOINT,
+			HA_PROFILE_ID,
+			ZCL_CLUSTER_HAVC_DIHUMIDIFICATION_CONTROL,
+			ZCL_ATTRID_DHUM_COOLING,
+			0,
+			3600,
+			(u8 *)&reportableChange
+		);
+#endif
+
 //#if !USE_BLE
 //	bdb_findBindMatchClusterSet(FIND_AND_BIND_CLUSTER_NUM, bdb_findBindClusterList);
 //#endif

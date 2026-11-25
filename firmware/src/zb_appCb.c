@@ -18,6 +18,22 @@
 #include "app_main.h"
 #include "app_ui.h"
 #include "lcd.h"
+#include "reporting.h"
+
+#ifdef ZCL_OTA
+extern ota_ctx_t g_otaCtx;
+
+/* OTA from the trust center only: the SDK otherwise takes the first device answering its broadcast Match Descriptor */
+static void sensorDevice_otaQueryStart(void) {
+	if(zcl_attr_imageUpgradeStatus == IMAGE_UPGRADE_STATUS_NORMAL
+		&& !ZB_IEEE_ADDR_CMP(zcl_attr_upgradeServerID, ss_ib.trust_center_address)) {
+		ZB_IEEE_ADDR_INVALID(zcl_attr_upgradeServerID);
+		ota_serverAddrPerprogrammed(ss_ib.trust_center_address, 1);
+		g_otaCtx.otaServerEpInfo.profileId = HA_PROFILE_ID;
+	}
+	ota_queryStart(OTA_QUERY_INTERVAL);
+}
+#endif
 #if USE_BLE
 #include "zigbee_ble_switch.h"
 #include "stack/ble/ble.h"
@@ -64,7 +80,8 @@ ota_callBack_t sensorDevice_otaCb =
  */
 s32 sensorDevice_bdbNetworkSteerStart(void *arg){
 
-	bdb_networkSteerStart();
+	if(bdb_networkSteerStart() == BDB_STATE_COMMISSIONING_BUSY)
+		return 5000;
 
 	g_sensorAppCtx.timerSteerEvt = NULL;
 	return -1;
@@ -104,8 +121,31 @@ inline void sensorDevice_rejoin_faillure_timer_set(void) {
 	g_sensorAppCtx.timerSteerEvt = TL_ZB_TIMER_SCHEDULE(sensorDevice_bdbNetworkSteerStart, NULL, period);
 }
 
+/* Rejoin period, ms. The full channel mask is scanned on every 4th attempt. */
+static const u32 rejoinBackoffTbl[] = {
+	30*1000, 60*1000, 2*60*1000, 5*60*1000, 10*60*1000, 20*60*1000, 30*60*1000
+};
+#define REJOIN_BACKOFF_STEPS	(sizeof(rejoinBackoffTbl)/sizeof(rejoinBackoffTbl[0]))
+
+static u8 rj_step;
+static u8 rj_chan; // network channel, 0 - unknown
+#if !USE_BLE
+static bool rj_secMode = REJOIN_SECURITY;
+#endif
+
+static void app_saveNwkChannel(void) {
+	u8 ch = g_zbMacPib.phyChannelCur;
+	if(ch >= 11 && ch <= 26)
+		rj_chan = ch;
+}
+
+static u32 app_rejoinChannelMask(void) {
+	if(rj_chan && (rj_step & 3) != 3)
+		return 1UL << rj_chan;
+	return zb_apsChannelMaskGet();
+}
+
 static s32 sensorDevice_rejoinBackoff(void *arg){
-    static bool rejoinMode = REJOIN_SECURITY;
 
     if (zb_isDeviceFactoryNew()) {
     	g_sensorAppCtx.timerRejoinBackoffEvt = NULL;
@@ -113,17 +153,41 @@ static s32 sensorDevice_rejoinBackoff(void *arg){
     }
 
 #if !USE_BLE
-    sws_printf("rejoinBackoff(%d)\n", rejoinMode);
-    zb_rejoinSecModeSet(rejoinMode);
+    sws_printf("rejoinBackoff(%d,%d)\n", rj_secMode, rj_step);
+    zb_rejoinSecModeSet(rj_secMode);
+    rj_secMode = !rj_secMode;
 #else
     sws_printf("rejoinBackoff()\n");
 #endif
 
-    zb_rejoinReq(zb_apsChannelMaskGet(), g_bdbAttrs.scanDuration);
+    zb_rejoinReq(app_rejoinChannelMask(), g_bdbAttrs.scanDuration);
 
-    rejoinMode = !rejoinMode;
-    return 0;
+    if(++rj_step == 0)
+    	rj_step = 0xfc;
+    return rejoinBackoffTbl[(rj_step < REJOIN_BACKOFF_STEPS) ? rj_step : (REJOIN_BACKOFF_STEPS - 1)];
 }
+
+static void app_rejoinSchedule(u32 first_ms) {
+	if(!g_sensorAppCtx.timerRejoinBackoffEvt)
+		g_sensorAppCtx.timerRejoinBackoffEvt = TL_ZB_TIMER_SCHEDULE(sensorDevice_rejoinBackoff, NULL, first_ms);
+}
+
+void app_rejoinNow(void) {
+	rj_step = 0;
+	if(g_sensorAppCtx.timerRejoinBackoffEvt)
+		TL_ZB_TIMER_CANCEL(&g_sensorAppCtx.timerRejoinBackoffEvt);
+	app_rejoinSchedule(100);
+}
+
+#if !USE_BLE
+static ev_timer_event_t *timerDevAnnceEvt;
+static s32 app_devAnnceTimerCb(void *arg) {
+	timerDevAnnceEvt = NULL;
+	if(zb_isDeviceJoinedNwk())
+		zb_zdoSendDevAnnance();
+	return -1;
+}
+#endif
 
 /*********************************************************************
  * @fn      zbdemo_bdbInitCb
@@ -149,16 +213,20 @@ void zb_bdbInitCb(u8 status, u8 joinedNetwork){
 		 */
 		if(joinedNetwork){
 
+			g_sensorAppCtx.linkDown = 0;
+			app_saveNwkChannel();
+
 			set_PollRate(); // zb_setPollRate(DEFAULT_POLL_RATE);
 			tpc_apply();
 
 #ifdef ZCL_OTA
-			ota_queryStart(OTA_PERIODIC_QUERY_INTERVAL); // 30 * 60);	// 30 m
+			sensorDevice_otaQueryStart();
 #endif
 
 #ifdef ZCL_POLL_CTRL
 			sensorDevice_zclCheckInStart();
 #endif
+			app_fastPollWindow(30*1000);
 		} else {
 			u16 jitter = 0;
 			do {
@@ -177,17 +245,17 @@ void zb_bdbInitCb(u8 status, u8 joinedNetwork){
 		}
 	} else {
 		if(joinedNetwork) {
-			if(!g_sensorAppCtx.timerRejoinBackoffEvt) {
-	            g_sensorAppCtx.timerRejoinBackoffEvt = TL_ZB_TIMER_SCHEDULE(sensorDevice_rejoinBackoff, NULL, 60 * 1000);
-			}
+			g_sensorAppCtx.linkDown = 1;
+			app_rejoinSchedule(rejoinBackoffTbl[0]);
 #if USE_BLE
 			g_dualModeInfo.bleStart = 1;
 #endif
 		}
 	}
 }
-
-
+#if USE_UPDATE_POLLRATE
+ev_timer_event_t *timer_reinit_pollRate;
+#endif
 /*********************************************************************
  * @fn      set_PollRate
  *
@@ -199,14 +267,92 @@ void zb_bdbInitCb(u8 status, u8 joinedNetwork){
  * @return  None
  */
 void set_PollRate(void) {
-#if	!USE_BLE && USE_DISPLAY
+#if	!USE_BLE
 	if(g_sensorAppCtx.timerTaskEvt) {
 		TL_ZB_TIMER_CANCEL(&g_sensorAppCtx.timerTaskEvt);
 	}
 #endif
-	zb_setPollRate(g_zcl_pollCtrlAttrs.longPollInterval * POLL_RATE_QUARTERSECONDS);
+#if USE_UPDATE_POLLRATE
+	if(timer_reinit_pollRate) {
+		TL_ZB_TIMER_CANCEL(&timer_reinit_pollRate);
+	}
+	zb_setPollRate(g_zcl_thermostatUICfgAttrs.measureInterval * 4 * POLL_RATE_QUARTERSECONDS);
+#else
+	app_pollRateApply();
+#endif
 	sws_printf("set_PollRate: %dqt\n", g_zcl_pollCtrlAttrs.longPollInterval);
 }
+
+static ev_timer_event_t *timerFastPollEvt;
+
+/*********************************************************************
+ * @fn      app_pollRateApply
+ *
+ * @brief   Set poll rate: OTA > PollControl fast poll > app fast poll > long poll
+ */
+void app_pollRateApply(void) {
+	u32 rate;
+#ifdef ZCL_OTA
+	if(zcl_attr_imageUpgradeStatus == IMAGE_UPGRADE_STATUS_DOWNLOAD_IN_PROGRESS)
+		rate = QUEUE_POLL_RATE;
+	else
+#endif
+#ifdef ZCL_POLL_CTRL
+	if(poll_ctrl_wrk.isFastPollMode)
+		rate = g_zcl_pollCtrlAttrs.shortPollInterval * POLL_RATE_QUARTERSECONDS;
+	else
+#endif
+	if(timerFastPollEvt)
+		rate = 1000;
+	else
+		rate = g_zcl_pollCtrlAttrs.longPollInterval * POLL_RATE_QUARTERSECONDS;
+	zb_setPollRate(rate);
+}
+
+static s32 app_fastPollTimerCb(void *arg) {
+	timerFastPollEvt = NULL;
+	app_pollRateApply();
+	return -1;
+}
+
+/*********************************************************************
+ * @fn      app_fastPollWindow
+ *
+ * @brief   Poll every second for 'ms'
+ */
+void app_fastPollWindow(u32 ms) {
+	if(!zb_isDeviceJoinedNwk() || g_sensorAppCtx.linkDown)
+		return;
+	if(timerFastPollEvt) {
+		if(timerFastPollEvt->timeout >= ms)
+			return;
+		TL_ZB_TIMER_CANCEL(&timerFastPollEvt);
+	}
+	timerFastPollEvt = TL_ZB_TIMER_SCHEDULE(app_fastPollTimerCb, NULL, ms);
+	app_pollRateApply();
+}
+
+#if USE_UPDATE_POLLRATE
+
+static s32 restore_PollRate_evt(void *arg) {
+	if(poll_ctrl_wrk.zclFastPollTimeoutTimerEvt)
+		return 0;
+	set_PollRate();
+	// timer_reinit_pollRate = NULL;
+	return -1;
+}
+
+/* Set fast PollRate period (ms) */
+void up_PollRate(u32 period_ms) {
+	if(timer_reinit_pollRate) {
+		TL_ZB_TIMER_CANCEL(&timer_reinit_pollRate);
+	}
+	timer_reinit_pollRate = TL_ZB_TIMER_SCHEDULE(restore_PollRate_evt, NULL, period_ms);
+	if(!poll_ctrl_wrk.zclFastPollTimeoutTimerEvt) {
+		zb_setPollRate(4 * POLL_RATE_QUARTERSECONDS); // 2 sec
+	}
+}
+#endif
 
 /*********************************************************************
  * @fn      zbdemo_bdbCommissioningCb
@@ -237,11 +383,17 @@ void zb_bdbCommissioningCb(u8 status, void *arg){
 			app_report_config_later();	// HA's config entities match the device after every (re)join
 
 			g_sensorAppCtx.rejoin_cnt = REJOIN_FAILURE_COUNT;
+			g_sensorAppCtx.linkDown = 0;
+			rj_step = 0;
+			app_saveNwkChannel();
 
 			light_blink_start(10, 500, 500);
-
 			//zb_setPollRate(POLL_RATE * 3);
+#if USE_UPDATE_POLLRATE
+			up_PollRate(32768); // 32 sec
+#else
 			set_PollRate();
+#endif
 			tpc_apply();
 			/* Fortify: explicitly (re)assert the End Device Timeout to our parent,
 			 * advertising BOTH keepalive methods (MAC data poll + end-dev-timeout-req),
@@ -254,10 +406,17 @@ void zb_bdbCommissioningCb(u8 status, void *arg){
 		    sensorDevice_zclCheckInStart();
 #endif
 #ifdef ZCL_OTA
-			ota_queryStart(OTA_PERIODIC_QUERY_INTERVAL);
+			sensorDevice_otaQueryStart();
 #endif
 #if	USE_DISPLAY
 			show_connected_symbol(true);
+#endif
+			app_fastPollWindow(60*1000);
+			app_set_thb_report();
+#if !USE_BLE
+			if(timerDevAnnceEvt)
+				TL_ZB_TIMER_CANCEL(&timerDevAnnceEvt);
+			timerDevAnnceEvt = TL_ZB_TIMER_SCHEDULE(app_devAnnceTimerCb, NULL, 500);
 #endif
 #if FIND_AND_BIND_SUPPORT
 			//start Finding & Binding
@@ -275,13 +434,14 @@ void zb_bdbCommissioningCb(u8 status, void *arg){
 		case BDB_COMMISSION_STA_TARGET_FAILURE:
 			sws_puts("BDB: join\n");
 			sensorDevice_rejoin_faillure_timer_set();
+			g_sensorAppCtx.linkDown = 1;
 #if	USE_BLE
 			g_dualModeInfo.bleStart = 1;
 #else
 #if	USE_DISPLAY
 			show_connected_symbol(false);
 			if(!g_sensorAppCtx.timerTaskEvt)
-				g_sensorAppCtx.timerTaskEvt = TL_ZB_TIMER_SCHEDULE(sensors_task, NULL, READ_SENSOR_TIMER_MS);
+				g_sensorAppCtx.timerTaskEvt = TL_ZB_TIMER_SCHEDULE(sensors_timer_cb, NULL, READ_SENSOR_TIMER_MS);
 #endif
 #endif
 			break;
@@ -299,31 +459,34 @@ void zb_bdbCommissioningCb(u8 status, void *arg){
 			tpc_boost_max();   // jump to max TX to re-establish the link
 #if	USE_BLE
 			g_dualModeInfo.bleStart = 1;
-#else
-			zb_rejoinSecModeSet(REJOIN_SECURITY);
 #endif
-			zb_rejoinReq(zb_apsChannelMaskGet(), g_bdbAttrs.scanDuration);
-#if	USE_DISPLAY
+			g_sensorAppCtx.linkDown = 1;
+			if(!zb_isDeviceFactoryNew() && !g_sensorAppCtx.timerRejoinBackoffEvt) {
+#if	!USE_BLE
+				zb_rejoinSecModeSet(REJOIN_SECURITY);
+#endif
+				zb_rejoinReq(app_rejoinChannelMask(), g_bdbAttrs.scanDuration);
+				app_rejoinSchedule(rejoinBackoffTbl[0]);
+			}
+#if	!USE_BLE && USE_DISPLAY
 			show_connected_symbol(false);
 			if(!g_sensorAppCtx.timerTaskEvt)
-				g_sensorAppCtx.timerTaskEvt = TL_ZB_TIMER_SCHEDULE(sensors_task, NULL, READ_SENSOR_TIMER_MS);
+				g_sensorAppCtx.timerTaskEvt = TL_ZB_TIMER_SCHEDULE(sensors_timer_cb, NULL, READ_SENSOR_TIMER_MS);
 #endif
 			break;
 		case BDB_COMMISSION_STA_REJOIN_FAILURE:
 			sws_puts("BDB: rejoin failure\n");
+			g_sensorAppCtx.linkDown = 1;
 			if(!zb_isDeviceFactoryNew()) {
-                // Fortify: retry rejoin every 2 min (was 10) so a moved sensor re-homes quickly
-				if(!g_sensorAppCtx.timerRejoinBackoffEvt) {
-		            g_sensorAppCtx.timerRejoinBackoffEvt = TL_ZB_TIMER_SCHEDULE(sensorDevice_rejoinBackoff, NULL, 2 * 60 * 1000);
-				}
+				app_rejoinSchedule(rejoinBackoffTbl[(rj_step < REJOIN_BACKOFF_STEPS) ? rj_step : (REJOIN_BACKOFF_STEPS - 1)]);
 			}
 #if	USE_BLE
 			g_dualModeInfo.bleStart = 1;
 #endif
-#if	USE_DISPLAY
+#if	!USE_BLE && USE_DISPLAY
 			show_connected_symbol(false);
 			if(!g_sensorAppCtx.timerTaskEvt)
-				g_sensorAppCtx.timerTaskEvt = TL_ZB_TIMER_SCHEDULE(sensors_task, NULL, READ_SENSOR_TIMER_MS);
+				g_sensorAppCtx.timerTaskEvt = TL_ZB_TIMER_SCHEDULE(sensors_timer_cb, NULL, READ_SENSOR_TIMER_MS);
 #endif
 			break;
 		default:
@@ -368,7 +531,7 @@ void sensorDevice_otaProcessMsgHandler(u8 evt, u8 status)
 {
 	if(evt == OTA_EVT_START){
 		if(status == ZCL_STA_SUCCESS){
-			zb_setPollRate(QUEUE_POLL_RATE);
+			app_pollRateApply();
 		}else{
 
 		}
@@ -378,7 +541,7 @@ void sensorDevice_otaProcessMsgHandler(u8 evt, u8 status)
 		if(status == ZCL_STA_SUCCESS){
 			ota_mcuReboot();
 		}else{
-			ota_queryStart(OTA_PERIODIC_QUERY_INTERVAL);
+			sensorDevice_otaQueryStart();
 		}
 	}else if(evt == OTA_EVT_IMAGE_DONE){
 		set_PollRate(); // zb_setPollRate(DEFAULT_POLL_RATE);
@@ -441,8 +604,8 @@ void sensorDevice_nwkStatusIndHandler(zdo_nwk_status_ind_t *pNwkStatusInd)
             sws_printf("curFC = %d, rcvFC = %d, failCnt = %d\n", nbe->incomingFrameCnt, nbe->receivedFrameCnt, nbe->frameCounterFailCnt);
         }
     } else if (pNwkStatusInd->status == NWK_COMMAND_STATUS_BAD_KEY_SEQUENCE_NUMBER) {
-        zb_rejoinSecModeSet(REJOIN_INSECURITY);
-        zb_rejoinReq(zb_apsChannelMaskGet(), g_bdbAttrs.scanDuration);
+        rj_secMode = REJOIN_INSECURITY;
+        app_rejoinSchedule(1000);
     }
 }
 #endif

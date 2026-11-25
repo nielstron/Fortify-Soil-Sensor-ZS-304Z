@@ -145,7 +145,6 @@ def main():
     else:
         run('git', 'clone', lock['repository'], str(source))
     run('git', 'checkout', lock['revision'], cwd=source)
-    run('git', 'apply', '--check', str(ROOT / 'firmware/fortify_zg303z.patch'), cwd=source)
     for path in (ROOT / 'firmware/src').rglob('*'):
         if path.is_file():
             target = source / 'src' / path.relative_to(ROOT / 'firmware/src')

@@ -97,12 +97,24 @@
 //#define BOARD_LYWSD02MMC			49 // EInk display, Clock (BLE)
 #define BOARD_ZG204ZL				50 // HOBEIAN ZG-204ZL PIR + LUX sensor https://pvvx.github.io/ZG-204ZL-3.0
 #define BOARD_ZG204ZV				51 // HOBEIAN-ZG-204ZV T&H + LUX + Radar Sensor XBR818
+#define BOARD_TS0201WING			52 // TS0201_TZ3000_dnpd6ayp, Tuya Zigbee "Temp & Humidity Sensor", Wing TS0201 2xAAA
+#define BOARD_ZG223Z				53 // HOBEIAN ZG223Z, Zigbee "Raindrop Detection Senser" + Lx, CR123A
+//#define BOARD_DIY_SCD41			54 // reserved: BLE, DIY module TB03F + SCD41, Li(ion, pol,...) battery >= 800 mAh
+#define BOARD_ZG204ZV1				55 // ZigBee only, HOBEIAN-ZG-204ZV T&H + LUX + Radar Sensor XBR818
+#define BOARD_ZG204ZV2_TH			56 // ZigBee only, HOBEIAN-ZG-204ZV v2 T&H + LUX + Radar Sensor XBR818 (HOBEIAN GPIO)
+#define BOARD_ZG204ZV2				57 // ZigBee only, HOBEIAN-ZG-204ZV v2 LUX + Radar Sensor XBR818
+#define BOARD_ZBEACON2_TH01_SHTC3	58 // ZBEACON-TH01-v2 PCB variant: SHTC3, SDA/SCL swapped, no TX pad (TS0201_TZ3000_rdhukkmi)
+#define BOARD_TH03_ZBPS				59 // Tuya TH03 Zigbee LCD, PCB TH03_ZBPS1.0, TLSR8656, LCD VKL060, GXHTV4 (SHT4x)
+#define BOARD_ZG204ZS				60 // ZigBee only, HOBEIAN/Tuya ZG-204ZS / ZG-204ZM PIR + mmWave Radar RC2417 + LUX
+#define BOARD_KCTW1Z				61 // Tuya KCTW1Z / Moes ZSS-KB-TH, ZigBee LCD, SHT40, CR2032
+//#define BOARD_MJWSD07MMC			62 // Xiaomi Bloetooth Temp & Humidity & CO2 BLE Sensor
+//#define DEVICE_NEXT			63 // ?
 
 #define BOARD_ARTECO_ZS304Z 126 // Private port: ZSSF21 V1.0, TLSR8251F512ET32
 
 /* Board define */
 #ifndef BOARD
-#define BOARD					BOARD_TS0201_TZ3000 // BOARD_LYWSD03MMC or BOARD_CGDK2 or ...
+#define BOARD					BOARD_TH03_ZBPS // BOARD_LYWSD03MMC or BOARD_CGDK2 or ...
 #endif
 
 /* Chip IDs */
@@ -129,10 +141,10 @@
 
 #if USE_BLE
 #define APP_RELEASE				0x00	//BCD app release "0.0"
-#define APP_BUILD				0x16	//BCD app build "0.4"
+#define APP_BUILD				0x18	//BCD app build "0.4"
 #else
 #define APP_RELEASE				0x01	//BCD app release "0.1"
-#define APP_BUILD				0x47	//BCD app build "4.7" (Arteco: link monitoring + daily-capped re-home, switch feedback)
+#define APP_BUILD				0x48	//BCD app build "4.8" (Arteco: link monitoring + daily-capped re-home, switch feedback; pvvx master merged)
 #endif
 #define STACK_RELEASE			0x30	//BCD stack release 3.0
 #define STACK_BUILD				0x01	//BCD stack build 01

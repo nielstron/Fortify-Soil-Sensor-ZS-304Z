@@ -174,13 +174,15 @@ void sensorDevice_zclWriteReqCmd(u16 clusterId, zclWriteCmd_t *pWriteReqCmd)
 	 if(clusterId == ZCL_CLUSTER_GEN_POLL_CONTROL){
 		for(int i = 0; i < numAttr; i++) {
 			if(attr[i].attrID == ZCL_ATTRID_CHK_IN_INTERVAL) {
+				if(poll_ctrl_wrk.zclCheckInTimerEvt)
+					TL_ZB_TIMER_CANCEL(&poll_ctrl_wrk.zclCheckInTimerEvt);
 				sensorDevice_zclCheckInStart();
 			} else if(attr[i].attrID == ZCL_ATTRID_LONG_POLL_INTERVAL) {
 				test_set_measure_longpoll_interval(g_zcl_pollCtrlAttrs.longPollInterval >> 2);
 #if ZCL_THERMOSTAT_UI_CFG
-				zcl_thermostatConfig_save();
+				zcl_thermostatConfig_save(0);
 #elif defined(ZCL_ILLUMINANCE_LEVEL_SENSING)
-				zcl_illuminanceConfig_save();
+				zcl_illuminanceConfig_save(0);
 #endif
 			}
 		}
@@ -188,17 +190,23 @@ void sensorDevice_zclWriteReqCmd(u16 clusterId, zclWriteCmd_t *pWriteReqCmd)
 #endif // ZCL_POLL_CTRL
 #ifdef ZCL_ON_OFF
 	if(clusterId == ZCL_CLUSTER_GEN_ON_OFF) {
-		zcl_onoffConfig_save();
+		zcl_onoffConfig_save(0);
 	} else
 #endif
 #ifdef ZCL_ILLUMINANCE_LEVEL_SENSING
 	if(clusterId == ZCL_CLUSTER_MS_ILLUMINANCE_LEVEL_SENSING_CONFIG) {
 		for(int i = 0; i < numAttr; i++) {
 			if(attr[i].attrID == ZCL_ATTRID_ILSC_TARGET_LEVEL) {
-				zcl_illuminanceLevel_save();
+				zcl_illuminanceLevel_save(0);
+				g_zcl_illuminanceAttrs.lxTargetLevel = pow10_fixed(g_zcl_illuminanceAttrs.TargetLevelzLx);
+			} else if(attr[i].attrID == ZCL_CUSTOM_ATTRID_LX_SENSOR_TAGET) {
+				g_zcl_illuminanceAttrs.TargetLevelzLx = calk_10000_log10(g_zcl_illuminanceAttrs.lxTargetLevel);
+				zcl_illuminanceLevel_save(0);
+#if !ZCL_THERMOSTAT_UI_CFG
 			} else if(attr[i].attrID >= ZCL_CUSTOM_ATTRID_MEASURE_INTERVAL
 					&& attr[i].attrID <= ZCL_CUSTOM_ATTRID_LX_SENSOR_COEF) {
-				zcl_illuminanceConfig_save();
+				zcl_illuminanceConfig_save(0);
+#endif
 			}
 		}
 	} else
@@ -219,14 +227,19 @@ void sensorDevice_zclWriteReqCmd(u16 clusterId, zclWriteCmd_t *pWriteReqCmd)
 #endif
 		}
 		if(cfg_changed) {
-			zcl_thermostatConfig_save();
+			zcl_thermostatConfig_save(0);
 			tpc_apply();   // re-evaluate TX power if txpwr_* changed
 		}
 	} else
 #endif // ZCL_THERMOSTAT_UI_CFG
-#ifdef ZCL_ILLUMINANCE_LEVEL_SENSING
+#ifdef ZCL_DIHUMIDIFICATION_CONTROL
+	if(clusterId == ZCL_CLUSTER_HAVC_DIHUMIDIFICATION_CONTROL) {
+		zcl_dhumConfig_save(0);
+	} else
+#endif // ZCL_DIHUMIDIFICATION_CONTROL
+#if defined(ZCL_ILLUMINANCE_LEVEL_SENSING) && defined(ZCL_OCCUPANCY_SENSING)
 	if(clusterId == ZCL_CLUSTER_MS_OCCUPANCY_SENSING) {
-		zcl_occupanceConfig_save();
+		zcl_occupanceConfig_save(0);
 	} else
 #endif
 #if USE_BLE
@@ -623,7 +636,13 @@ void sensorDevice_zclCheckInCmdSend(void)
 	epInfo_t dstEpInfo;
 	TL_SETSTRUCTCONTENT(dstEpInfo, 0);
 
-	dstEpInfo.dstAddrMode = APS_DSTADDR_EP_NOTPRESETNT;
+	if(zb_bindingTblSearched(ZCL_CLUSTER_GEN_POLL_CONTROL, SENSOR_DEVICE_ENDPOINT)) {
+		dstEpInfo.dstAddrMode = APS_DSTADDR_EP_NOTPRESETNT;
+	} else {
+		// no binding: check in with the coordinator
+		dstEpInfo.dstAddrMode = APS_SHORT_DSTADDR_WITHEP;
+		dstEpInfo.dstAddr.shortAddr = 0x0000;
+	}
 	dstEpInfo.dstEp = SENSOR_DEVICE_ENDPOINT;
 	dstEpInfo.profileId = HA_PROFILE_ID;
 
@@ -647,7 +666,7 @@ s32 sensorDevice_zclCheckInTimerCb(void *arg)
 
 void sensorDevice_zclCheckInStart(void)
 {
-	if(zb_bindingTblSearched(ZCL_CLUSTER_GEN_POLL_CONTROL, SENSOR_DEVICE_ENDPOINT)){
+	if(zb_isDeviceJoinedNwk()){
 		zcl_pollCtrlAttr_t *pPollCtrlAttr = zcl_pollCtrlAttrGet();
 
 		if(!poll_ctrl_wrk.zclCheckInTimerEvt){
@@ -662,13 +681,9 @@ void sensorDevice_zclCheckInStart(void)
 
 void sensorDevice_zclSetFastPollMode(bool fastPollMode)
 {
-	zcl_pollCtrlAttr_t *pPollCtrlAttr = zcl_pollCtrlAttrGet();
-
 	poll_ctrl_wrk.isFastPollMode = fastPollMode;
-	u32 pollRate = fastPollMode ?
-			pPollCtrlAttr->shortPollInterval : pPollCtrlAttr->longPollInterval;
 
-	zb_setPollRate(pollRate * POLL_RATE_QUARTERSECONDS);
+	app_pollRateApply();
 }
 
 s32 sensorDevice_zclFastPollTimeoutCb(void *arg)
@@ -773,7 +788,7 @@ status_t test_set_measure_longpoll_interval(u32 measureInterval) {
 	sws_printf("Set measureInterval: %d sec\n", measureInterval);
 	// long poll follows the measurement interval, but never beyond the parent's ~7.68 s hold time
 	g_zcl_pollCtrlAttrs.longPollInterval = (measureInterval < LONG_POLL_MAX_SEC ? measureInterval : LONG_POLL_MAX_SEC) << 2; // in 1/4 sec
-	zb_setPollRate(g_zcl_pollCtrlAttrs.longPollInterval * POLL_RATE_QUARTERSECONDS);
+	app_pollRateApply();
 #if ZCL_THERMOSTAT_UI_CFG
 	g_zcl_thermostatUICfgAttrs.measureInterval = (u8)measureInterval;
 #elif defined(ZCL_ILLUMINANCE_LEVEL_SENSING)
@@ -803,7 +818,8 @@ static status_t sensorDevice_zclPollCtrlSetShortPollIntervalCmdHandler(zcl_setSh
 	&& (pCmd->newShortPollInterval <= pPollCtrlAttr->longPollInterval)
 		){
 		pPollCtrlAttr->shortPollInterval = pCmd->newShortPollInterval;
-		zb_setPollRate(pPollCtrlAttr->shortPollInterval * POLL_RATE_QUARTERSECONDS);
+		if(poll_ctrl_wrk.isFastPollMode)
+			zb_setPollRate(pPollCtrlAttr->shortPollInterval * POLL_RATE_QUARTERSECONDS);
 	}else{
 		return ZCL_STA_INVALID_VALUE;
 	}
@@ -946,7 +962,7 @@ status_t sensorDevice_groupCb(zclIncomingAddrInfo_t *pAddrInfo, u8 cmdId, void *
 }
 #endif	/* ZCL_GROUP */
 
-#ifdef ZCL_ON_OFF
+#if defined(ZCL_ON_OFF) || (USE_REMOTE_ONOFF)
 
 #if USE_RETRY_ONOFF
 extern u32 rtcSeconds;
@@ -965,7 +981,7 @@ void taskRetryOnOff(void) {
 			 && bind_tbl->srcEp == SENSOR_DEVICE_ENDPOINT) {
 			    sws_printf("RetryOnOff dst:%08p:%02x, ep:%02x, cmd:%02x\n",
 			    		&bind_tbl->dstExtAddrInfo, bind_tbl->used - 1,
-						SENSOR_DEVICE_ENDPOINT, pOnOff->onOffrm);
+						SENSOR_DEVICE_ENDPOINT, pOnOff->onOff);
 				epInfo_t dstEpInfo;
 			    TL_SETSTRUCTCONTENT(dstEpInfo, 0);
 			    dstEpInfo.profileId = HA_PROFILE_ID;
@@ -1074,11 +1090,12 @@ void cmdOnOff_set(bool status) {
 	if(pOnOff->onOff != status) {
 		pOnOff->onOff = status;
 		if(pOnOff->startUpOnOff >= ZCL_START_UP_ONOFF_SET_ONOFF_TOGGLE) {
-	      	zcl_onoffConfig_save();
+	      	zcl_onoffConfig_save(0);
 		}
 #if USE_REMOTE_ONOFF && (DEV_SERVICES & SERVICE_PIR)
 		if(status == ZCL_ONOFF_STATUS_OFF) {
 			if(pOnOff->remoteOnOff) {
+				// old cmd = ZCL_CMD_ONOFF_ON -> ZCL_CMD_ONOFF_OFF
 				remoteCmdOnOff(SENSOR_DEVICE_ENDPOINT, ZCL_CMD_ONOFF_OFF);
 			}
 		}

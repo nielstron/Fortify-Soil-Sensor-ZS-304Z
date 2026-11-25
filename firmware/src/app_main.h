@@ -41,7 +41,8 @@ typedef struct{
 
 	u8  reportFlg;
 
-#if	!USE_BLE && USE_DISPLAY
+	u8  linkDown;	// =1: network lost, rejoin in progress
+#if	!USE_BLE
 	ev_timer_event_t *timerTaskEvt;
 #endif
 	ev_timer_event_t *timerLedEvt;
@@ -248,6 +249,36 @@ u16 probe_percent(u16 raw);			// sensor_rh.c: moisture in 0.01 % from the dry/we
 #define LONG_POLL_MAX_SEC		7
 
 
+#ifdef ZCL_DIHUMIDIFICATION_CONTROL
+/**
+ *  @brief Defined for Dehumidification Control cluster attributes
+ */
+typedef struct {
+	u8 rh; 			// 0..100%
+	u8 cooling;		// 0..maxcool
+	u8 setpoint;	// 30..100% DHUM_SetpointMin..DHUM_SetpointMax
+	u8 rhmode;		// 0/1 DHUM_RH_ModeLocale/DHUM_RH_ModeNetwork
+	u8 lockout;		// 0/1 DHUM_LockoutNotAllowed/DHUM_LockoutAllowed
+	u8 hysteresis;	// 2..20% DHUM_HysteresisMin..DHUM_HysteresisMax
+	u8 maxcool;		// 20.100% DHUM_MaxCoolMin..DHUM_MaxCoolMax
+	u8 display;		// 0/1 DHUM_NotDisplayed/DHUM_Displayed
+} zcl_dhumCfgAttr_t;
+
+extern zcl_dhumCfgAttr_t zcl_dhumCfgAttr;
+
+#define DHUM_SetpointDef  	50	// %
+#define DHUM_HysteresisDef  2	// %
+
+typedef struct {
+	u8 setpoint;	// 30..100% DHUM_SetpointMin..DHUM_SetpointMax
+	u8 lockout;		// 0/1 DHUM_LockoutNotAllowed/DHUM_LockoutAllowed
+	u8 hysteresis;	// 2..20% DHUM_HysteresisMin..DHUM_HysteresisMax
+} zcl_dhumSaveCfg_t;
+
+extern zcl_dhumSaveCfg_t zcl_dhumSaveCfg;
+nv_sts_t zcl_dhumConfig_save(int init);
+#endif // ZCL_DIHUMIDIFICATION_CONTROL
+
 /**
  *  @brief Defined for Occupancy cluster attributes
  */
@@ -260,13 +291,33 @@ typedef struct {
 	u8  sensor_type;
 	u8  state;
 	u8  thres;
-	//	u16 oc2un_delay;
+#if USE_SENSOR_XBR818 || USE_SENSOR_RC2417
+	u16 oc2un_delay;
+#endif
+#if USE_SENSOR_RC2417
+	u8 zone1_m_thres;
+	u8 zone1_s_thres;
+	u8 zone2_m_thres;
+	u8 zone2_s_thres;
+	u8 zone3_m_thres;
+	u8 zone3_s_thres;
+	u8 trith;
+#endif
 } zcl_occupancyAttr_t;
 
-#if USE_SENSOR_XBR818
+#if USE_SENSOR_XBR818 || USE_SENSOR_RC2417
 typedef struct {
 	u16 delay;
 	u8  thres;
+#if USE_SENSOR_RC2417
+	u8 zone1_m_thres;
+	u8 zone1_s_thres;
+	u8 zone2_m_thres;
+	u8 zone2_s_thres;
+	u8 zone3_m_thres;
+	u8 zone3_s_thres;
+	u8 trith;
+#endif
 } zcl_occupancy_save_t;
 #endif
 
@@ -289,7 +340,6 @@ typedef struct _comfort_t {
 	s16 t[2];
 	u16 h[2];
 } scomfort_t;
-
 
 /**********************************************************************
  * GLOBAL VARIABLES
@@ -356,7 +406,6 @@ status_t sensorDevice_powerCfgCb(zclIncomingAddrInfo_t *pAddrInfo, u8 cmdId, voi
 status_t sensorDevice_pollCtrlCb(zclIncomingAddrInfo_t *pAddrInfo, u8 cmdId, void *cmdPayload);
 status_t sensorDevice_groupCb(zclIncomingAddrInfo_t *pAddrInfo, u8 cmdId, void *cmdPayload);
 void sensorDevice_zclCheckInStart(void);
-void set_PollRate(void);
 status_t test_set_measure_longpoll_interval(u32 measureInterval);
 
 void sensorDevice_leaveCnfHandler(nlme_leave_cnf_t *pLeaveCnf);
@@ -394,8 +443,23 @@ typedef struct {
 extern poll_ctrl_wrk_t poll_ctrl_wrk;
 #endif
 
+void set_PollRate(void);
+void app_rejoinNow(void);
+void app_pollRateApply(void);
+void app_fastPollWindow(u32 ms);
+#ifdef ZCL_POLL_CTRL
+void sensorDevice_zclCheckInCmdSend(void);
+#endif
+
+#if USE_UPDATE_POLLRATE
+void up_PollRate(u32 period_ms);
+#endif
+
 void scan_task(void);
 s32 sensors_task(void *arg);
+#if !USE_BLE
+s32 sensors_timer_cb(void *arg);
+#endif
 void read_sensor_and_show(void);
 #if	USE_DISPLAY
 void show_th(void);
