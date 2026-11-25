@@ -1,13 +1,13 @@
 """Arteco ZS-304Z / ZSSF21 (Fortify custom firmware, raw-ADC port).
 
 Exposes:
-  - Temperature offset / Humidity offset / Measurement interval  (HVAC UI cluster 0x0204)
+  - Temperature offset / Humidity offset / Reporting interval  (HVAC UI cluster 0x0204)
   - Soil raw ADC (0xF000) and Soil ADC reference / diode (0xF001) on the EP2
     relative-humidity cluster, for DIY calibration in Home Assistant.
   - Debug mode switch (0x0204/0x0125): probe read and both raw values reported
     every 500 ms; switches itself off after 10 min (RAM only).
   - Probe interval (0x0126, s) and probe settle time (0x0127, ms), saved on the
-    device. Temperature/humidity keep the measurement interval.
+    device. Temperature/humidity/battery keep the reporting interval.
   - Two-point calibration (0x012D-0x012F) with battery compensation of both
     points (0x0131-0x0134; stock slopes 905/804 per mille).
 
@@ -172,8 +172,8 @@ builder = (
         min_value=3,
         max_value=255,
         unit=UnitOfTime.SECONDS,
-        translation_key="measurement_interval",
-        fallback_name="Measurement interval",
+        translation_key="reporting_interval",
+        fallback_name="Reporting interval",
         mode="box",
     )
     .enum(

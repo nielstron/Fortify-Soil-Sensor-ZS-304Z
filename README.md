@@ -73,7 +73,7 @@ All on cluster 0x0204 (UI config, EP1), manufacturer-specific, exposed by the qu
 | Attr | Entity | Default | Meaning |
 |---|---|---|---|
 | `0x0125` bool | **Debug mode** switch | off | Probe read and raw `0xF000`/`0xF001` reported to the coordinator every 500 ms; switches itself off after 10 min and reports off. RAM only. |
-| `0x0126` u16 | **Probe interval** (10 s – 12 h) | 600 s | Probe measured at most this often. Temperature/humidity/battery use the measurement interval `0x0107` (default 20 s). |
+| `0x0126` u16 | **Probe interval** (10 s – 12 h) | 600 s | Probe measured at most this often. Temperature/humidity/battery use the **Reporting interval** `0x0107` (default 20 s): the device wakes, measures them and sends any due reports. |
 | `0x0127` u16 | **Probe settle time** (1–1000 ms) | 300 ms | Power + PWM on → ADC read. Tune with the bench sweep. |
 | `0x0128` u16 | **Probe report threshold** (raw counts) | 40 | A new raw reading is reported at once if it moved at least this much. |
 | `0x0129` u8 | **Probe ADC samples** (1–16) | 4 | ADC reads averaged per probe phase. |
@@ -90,6 +90,6 @@ The sweep shows how the probe output charges after power-on. In air it follows `
 
 Battery compensation uses the stock firmware's own model, recovered by disassembly: dry = 900/995·V − 248 mV and wet = 800/995·V − 347 mV, i.e. both end points move linearly with the battery voltage V. Only the slopes matter (the offsets are absorbed by the calibration), so they are configurable and default to 905 ‰ and 804 ‰. They describe the stock firmware's assumption for this circuit, not a measurement on this unit.
 
-The device polls its parent at least every **7 s**, independent of the measurement interval: parents hold frames for a sleepy child only ~7.68 s (Zigbee default), so any config write reaches the device on its next poll. A Poll Control *set long poll interval* only changes polling (≤ 7 s), never the measurement interval.
+The device polls its parent at least every **7 s**, independent of the reporting interval: parents hold frames for a sleepy child only ~7.68 s (Zigbee default), so any config write reaches the device on its next poll. A Poll Control *set long poll interval* only changes polling (≤ 7 s), never the reporting interval.
 
 Debug mode keeps the CPU busy for the settle time twice a second (≈ 60 % duty at 300 ms), so it costs about as much as two days of normal operation per 10 min.
