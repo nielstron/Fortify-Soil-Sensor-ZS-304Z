@@ -1,6 +1,8 @@
 # Fortify raw ADC port for Arteco ZS-304Z
 
-> Vibecoded
+> Vibecoded project but verified on hardware
+
+> AliExpress link: https://s.click.aliexpress.com/e/_c3O0zJDJ
 
 A hardware bring-up fork of [sweitzja/Fortify-Soil-Sensor-ZG-303Z](https://github.com/sweitzja/Fortify-Soil-Sensor-ZG-303Z), targeting the **Arteco ZS-304Z, PCB ZSSF21 V1.0, Telink TLSR8251F512ET32 (512 KB flash, 32 KB SRAM)**.
 
