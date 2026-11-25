@@ -4,7 +4,7 @@ A hardware bring-up fork of [sweitzja/Fortify-Soil-Sensor-ZG-303Z](https://githu
 
 **Status: pin map bench-verified; Zigbee firmware builds, first hardware flash pending.** The pins were recovered from the stock firmware and confirmed with the `--hw-test` bench image (see [hardware bring-up](docs/HARDWARE.md)); the light sensor on PB5 reads 0 also with the stock firmware and is probably not fitted. The Zigbee build itself (pairing, reporting, debug mode, OTA) has not yet been tested on the device. The original ZG-303Z binaries and OTA entries have been removed from this fork. Its OTA index is intentionally empty.
 
-Flashing is over SWire with a USB-UART adapter (TX → 1 kΩ → S, RX → S, GND): see *Firmware backup* and *Stock firmware analysis* in docs/HARDWARE.md for the backup, activation (power-cycle GND, not 3V) and speed settings.
+Flashing is over SWire with a USB-UART adapter (TX → 1 kΩ → S, RX → S, GND): see *Firmware backup* and *Stock firmware analysis* in docs/HARDWARE.md for the backup, activation (power-cycle GND, not 3V) and speed settings. If the flasher halts the chip (LED stops) but finds no speed (`no` at every setting), run `tools/swire_speed_scan.py <port>` while the board stays powered; it prints the working `-c` value for a `-t 0` flash.
 
 The goal is to expose the probe's ADC readings before the stock firmware clamps them to 0–100%. Our stock Arteco responded to air and water, but disagreed strongly with an AOYAN in the same soil. Applying a percentage offset cannot reliably recover information already lost inside the firmware.
 
