@@ -2,8 +2,6 @@
 
 > Vibecoded project but verified on hardware
 
-> AliExpress link: https://s.click.aliexpress.com/e/_c3O0zJDJ
-
 <a href="https://s.click.aliexpress.com/e/_c3VsyyDL"><img src="docs/images/arteco-zs-304z.jpg" alt="Arteco ZS-304Z soil sensor" width="200" align="right"></a>
 
 Zigbee firmware for the [Arteco ZS-304Z soil moisture sensor](https://s.click.aliexpress.com/e/_c3VsyyDL) (PCB ZSSF21), based on [Fortify](https://github.com/sweitzja/Fortify-Soil-Sensor-ZG-303Z) and [pvvx/ZigbeeTLc](https://github.com/pvvx/ZigbeeTLc), with a Home Assistant (ZHA) quirk.
