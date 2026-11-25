@@ -155,6 +155,12 @@ typedef struct {
 	u8  probe_pwm_duty;   // probe excitation duty (%)
 	u16 probe_cal_dry;    // raw ADC (x4) at 0 % moisture; 0 = not calibrated
 	u16 probe_cal_wet;    // raw ADC (x4) at 100 % moisture; 0 = not calibrated
+	/* Battery compensation of the calibration points (stock Arteco model: both
+	 * end points move linearly with the battery voltage). */
+	u16 probe_cal_dry_mv; // battery mV when the dry point was taken; 0 = no compensation
+	u16 probe_cal_wet_mv; // battery mV when the wet point was taken; 0 = no compensation
+	u16 probe_comp_slope_dry; // dry point shift per battery mV, in 1/1000 probe-mV (stock 905)
+	u16 probe_comp_slope_wet; // wet point shift per battery mV, in 1/1000 probe-mV (stock 804)
 }zcl_thermostatUICfgAttr_t;
 
 /* Adaptive TX power control (implemented in app_main.c) */
@@ -197,6 +203,10 @@ extern u16 g_probe_sweep[PROBE_SWEEP_N];
 #define PROBE_CAL_DRY_ATTRID	0x012D
 #define PROBE_CAL_WET_ATTRID	0x012E
 #define PROBE_CAL_CAPTURE_ATTRID	0x012F	// write 1 = dry, 2 = wet: store the current reading
+#define PROBE_CAL_DRY_MV_ATTRID		0x0131
+#define PROBE_CAL_WET_MV_ATTRID		0x0132
+#define PROBE_COMP_SLOPE_DRY_ATTRID	0x0133
+#define PROBE_COMP_SLOPE_WET_ATTRID	0x0134
 #define PROBE_INTERVAL_MIN_S	10
 #define PROBE_SETTLE_MAX_MS		1000
 #define PROBE_SAMPLES_MAX		16

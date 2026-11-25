@@ -8,6 +8,8 @@ Exposes:
     every 500 ms; switches itself off after 10 min (RAM only).
   - Probe interval (0x0126, s) and probe settle time (0x0127, ms), saved on the
     device. Temperature/humidity keep the measurement interval.
+  - Two-point calibration (0x012D-0x012F) with battery compensation of both
+    points (0x0131-0x0134; stock slopes 905/804 per mille).
 
 Requires the custom firmware built with the raw_adc/adc_diode attributes.
 Based on https://github.com/pvvx/ZigbeeTLc (zhaquirks/custom/zigbeetlc.py).
@@ -100,6 +102,19 @@ class CustomUserInterfaceCluster(CustomCluster, UserInterface):
         # Command: write 1 to run a probe sweep (results on EP2 0xF010..0xF016)
         probe_sweep = ZCLAttributeDef(
             id=0x0130, type=t.uint8_t, access="rw", is_manufacturer_specific=True
+        )
+        # Battery compensation of the calibration points (stock Arteco model)
+        probe_cal_dry_voltage = ZCLAttributeDef(
+            id=0x0131, type=t.uint16_t, access="rwp", is_manufacturer_specific=True
+        )
+        probe_cal_wet_voltage = ZCLAttributeDef(
+            id=0x0132, type=t.uint16_t, access="rwp", is_manufacturer_specific=True
+        )
+        probe_comp_slope_dry = ZCLAttributeDef(
+            id=0x0133, type=t.uint16_t, access="rw", is_manufacturer_specific=True
+        )
+        probe_comp_slope_wet = ZCLAttributeDef(
+            id=0x0134, type=t.uint16_t, access="rw", is_manufacturer_specific=True
         )
 
 
@@ -352,6 +367,50 @@ builder = (
         state_class=SensorStateClass.MEASUREMENT,
         translation_key="soil_adc_reference",
         fallback_name="Soil ADC reference",
+    )
+    .number(
+        CustomUserInterfaceCluster.AttributeDefs.probe_cal_dry_voltage.name,
+        CustomUserInterfaceCluster.cluster_id,
+        min_value=0,
+        max_value=4000,
+        step=1,
+        unit="mV",
+        translation_key="probe_cal_dry_voltage",
+        fallback_name="Probe calibration dry: battery (0 = no compensation)",
+        mode="box",
+    )
+    .number(
+        CustomUserInterfaceCluster.AttributeDefs.probe_cal_wet_voltage.name,
+        CustomUserInterfaceCluster.cluster_id,
+        min_value=0,
+        max_value=4000,
+        step=1,
+        unit="mV",
+        translation_key="probe_cal_wet_voltage",
+        fallback_name="Probe calibration wet: battery (0 = no compensation)",
+        mode="box",
+    )
+    .number(
+        CustomUserInterfaceCluster.AttributeDefs.probe_comp_slope_dry.name,
+        CustomUserInterfaceCluster.cluster_id,
+        min_value=0,
+        max_value=2000,
+        step=1,
+        unit="‰",
+        translation_key="probe_comp_slope_dry",
+        fallback_name="Battery compensation slope dry (stock 905)",
+        mode="box",
+    )
+    .number(
+        CustomUserInterfaceCluster.AttributeDefs.probe_comp_slope_wet.name,
+        CustomUserInterfaceCluster.cluster_id,
+        min_value=0,
+        max_value=2000,
+        step=1,
+        unit="‰",
+        translation_key="probe_comp_slope_wet",
+        fallback_name="Battery compensation slope wet (stock 804)",
+        mode="box",
     )
     .write_attr_button(
         CustomUserInterfaceCluster.AttributeDefs.probe_sweep.name,

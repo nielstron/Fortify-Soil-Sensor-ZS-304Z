@@ -39,6 +39,8 @@ static u8 probe_samples = PROBE_SAMPLES_DEF;
 static u16 pwm_cycle = PWM_CYCLE, pwm_pulse = PWM_PULSE;
 
 #ifdef PROBE_PWM_KHZ_DEF
+#define PROBE_ADC_VREF_MV	1175	// adc_drv.c: mV = raw x4 counts * 1175 / 4096
+
 static void probe_pwm_from_cfg(void) {
 	u32 khz = g_zcl_thermostatUICfgAttrs.probe_pwm_khz;
 	u32 duty = g_zcl_thermostatUICfgAttrs.probe_pwm_duty;
@@ -54,11 +56,24 @@ static void probe_pwm_from_cfg(void) {
 	pwm_pulse = (u16)pulse;
 }
 
+/* Calibration point moved to battery voltage v_mv (stock Arteco model: the end
+ * point shifts by slope/1000 probe-mV per battery mV). Probe values are raw ADC
+ * counts x4, i.e. 4096/1175 counts per mV. Off if v_cal or slope is 0.
+ * Ordered to stay inside s32 for battery-scale voltages: |slope*dv| <= 65535*4000 < 2^28. */
+static s32 probe_cal_at(s32 raw_cal, u32 v_cal, u32 slope_pm, u32 v_mv) {
+	if(!v_cal || !slope_pm || !v_mv)
+		return raw_cal;
+	s32 t = (s32)slope_pm * ((s32)v_mv - (s32)v_cal);	// 1/1000 probe-mV
+	return raw_cal + t / PROBE_ADC_VREF_MV * 4096 / 1000;
+}
+
 /* Linear moisture between the two calibration points, in 0.01 %. Works for
  * either direction (stock Arteco: wetter = lower ADC). */
 u16 probe_percent(u16 raw) {
-	s32 dry = g_zcl_thermostatUICfgAttrs.probe_cal_dry;
-	s32 wet = g_zcl_thermostatUICfgAttrs.probe_cal_wet;
+	zcl_thermostatUICfgAttr_t *c = &g_zcl_thermostatUICfgAttrs;
+	u32 vbat = measured_battery.average_mv;
+	s32 dry = c->probe_cal_dry ? probe_cal_at(c->probe_cal_dry, c->probe_cal_dry_mv, c->probe_comp_slope_dry, vbat) : 0;
+	s32 wet = c->probe_cal_wet ? probe_cal_at(c->probe_cal_wet, c->probe_cal_wet_mv, c->probe_comp_slope_wet, vbat) : 0;
 	if(!dry || !wet || dry == wet)
 		return 0xffff;	// ZCL "unknown": not calibrated
 	s32 v = (dry - (s32)raw) * 10000 / (dry - wet);

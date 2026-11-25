@@ -459,6 +459,10 @@ const zcl_thermostatUICfgAttr_t g_zcl_thermostatUICfgDefault = {
 		.probe_pwm_duty   = PROBE_PWM_DUTY_DEF,
 		.probe_cal_dry    = 0,	// not calibrated
 		.probe_cal_wet    = 0,
+		.probe_cal_dry_mv = 0,
+		.probe_cal_wet_mv = 0,
+		.probe_comp_slope_dry = PROBE_COMP_SLOPE_DRY_DEF,
+		.probe_comp_slope_wet = PROBE_COMP_SLOPE_WET_DEF,
 #endif
 #if	USE_DISPLAY
 		.TemperatureDisplayMode = 0,
@@ -515,6 +519,10 @@ const zclAttrInfo_t thermostat_ui_cfg_attrTbl[] =
 	{ PROBE_CAL_WET_ATTRID,  ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE | ACCESS_CONTROL_REPORTABLE, (u8*)&g_zcl_thermostatUICfgAttrs.probe_cal_wet },
 	{ PROBE_CAL_CAPTURE_ATTRID, ZCL_DATA_TYPE_UINT8, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE, (u8*)&g_probe_cal_capture },
 	{ PROBE_SWEEP_ATTRID,    ZCL_DATA_TYPE_UINT8,  ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE, (u8*)&g_probe_sweep_cmd },
+	{ PROBE_CAL_DRY_MV_ATTRID, ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE | ACCESS_CONTROL_REPORTABLE, (u8*)&g_zcl_thermostatUICfgAttrs.probe_cal_dry_mv },
+	{ PROBE_CAL_WET_MV_ATTRID, ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE | ACCESS_CONTROL_REPORTABLE, (u8*)&g_zcl_thermostatUICfgAttrs.probe_cal_wet_mv },
+	{ PROBE_COMP_SLOPE_DRY_ATTRID, ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE, (u8*)&g_zcl_thermostatUICfgAttrs.probe_comp_slope_dry },
+	{ PROBE_COMP_SLOPE_WET_ATTRID, ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE, (u8*)&g_zcl_thermostatUICfgAttrs.probe_comp_slope_wet },
 #endif
 #endif
 

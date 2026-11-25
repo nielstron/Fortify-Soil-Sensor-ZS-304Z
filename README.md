@@ -83,10 +83,12 @@ All on cluster 0x0204 (UI config, EP1), manufacturer-specific, exposed by the qu
 | `0x012D` / `0x012E` u16 | **Calibration dry / wet** (raw, 0 = unset) | unset | Two-point linear moisture → standard `measuredValue` on EP2 (0.01 %), shown as **Soil moisture**. Unknown until both are set. |
 | `0x012F` u8 | **Calibrate dry / wet** buttons | — | Write 1 / 2: measure now and store that raw reading as the dry / wet point. |
 | `0x0130` u8 | **Run probe sweep** button | — | Write 1: one raw reading each at 1, 5, 20, 50, 100, 300 and 1000 ms settle, each after 1 s with the probe unpowered; results on EP2 `0xF010`–`0xF016` (**Probe sweep N ms** diagnostic sensors), reported as taken (~9 s in total). RAM only. |
+| `0x0131` / `0x0132` u16 | **Calibration dry / wet: battery** (mV, 0 = no compensation) | 0 | Battery voltage when each point was taken; recorded by the calibrate buttons. |
+| `0x0133` / `0x0134` u16 | **Battery compensation slope dry / wet** (‰) | 905 / 804 | Each point moves by slope/1000 probe-mV per battery mV: `point(V) = point_cal + slope·(V − V_cal)`. 0 = off. |
 
 The sweep shows how the probe output charges after power-on. In air it follows `V(t) = V_end·(1 − e^(−t/τ))` with τ ≈ 18 ms; the ratio of the 20 ms to the 300 ms reading gives τ = −20 ms / ln(1 − ratio). If τ is the same in water/soil, a settle time of ~7τ (≈ 120–150 ms) is within the noise.
 
-Calibration has no supply-voltage compensation yet: whether the raw reading scales with battery voltage on this board has not been measured.
+Battery compensation uses the stock firmware's own model, recovered by disassembly: dry = 900/995·V − 248 mV and wet = 800/995·V − 347 mV, i.e. both end points move linearly with the battery voltage V. Only the slopes matter (the offsets are absorbed by the calibration), so they are configurable and default to 905 ‰ and 804 ‰. They describe the stock firmware's assumption for this circuit, not a measurement on this unit.
 
 The device polls its parent at least every **7 s**, independent of the measurement interval: parents hold frames for a sleepy child only ~7.68 s (Zigbee default), so any config write reaches the device on its next poll. A Poll Control *set long poll interval* only changes polling (≤ 7 s), never the measurement interval.
 

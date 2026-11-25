@@ -101,6 +101,9 @@ def board_header(profile):
 #define PROBE_PWM_KHZ_DEF 100
 #define PROBE_PWM_DUTY_DEF 50
 #define PROBE_HEARTBEAT_N_DEF 6
+/* Stock firmware (disassembly): dry = 900/995*V - 248, wet = 800/995*V - 347 (mV) */
+#define PROBE_COMP_SLOPE_DRY_DEF 905
+#define PROBE_COMP_SLOPE_WET_DEF 804
 #define PROBE_INTERVAL_DEF_S 600
 #define PROBE_SETTLE_DEF_MS 300
 #define PROBE_SAMPLES_DEF 4

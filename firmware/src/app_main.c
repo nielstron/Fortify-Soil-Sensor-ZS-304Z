@@ -226,13 +226,19 @@ static void probe_cal_capture(void) {
 		return;
 	read_rh_sensor_now();	// fresh reading with the current probe settings
 	u16 raw = g_zcl_MoistureAttrs.raw_adc;
-	if(which == 1)
+	u16 vbat = measured_battery.average_mv;	// for battery compensation of this point
+	if(which == 1) {
 		g_zcl_thermostatUICfgAttrs.probe_cal_dry = raw;
-	else
+		g_zcl_thermostatUICfgAttrs.probe_cal_dry_mv = vbat;
+	} else {
 		g_zcl_thermostatUICfgAttrs.probe_cal_wet = raw;
+		g_zcl_thermostatUICfgAttrs.probe_cal_wet_mv = vbat;
+	}
 	g_zcl_MoistureAttrs.measuredValue = probe_percent(raw);
 	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT, ZCL_CLUSTER_HAVC_USER_INTERFACE_CONFIG,
 			which == 1 ? PROBE_CAL_DRY_ATTRID : PROBE_CAL_WET_ATTRID);
+	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT, ZCL_CLUSTER_HAVC_USER_INTERFACE_CONFIG,
+			which == 1 ? PROBE_CAL_DRY_MV_ATTRID : PROBE_CAL_WET_MV_ATTRID);
 	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT2, ZCL_CLUSTER_MS_RELATIVE_HUMIDITY, 0xF000);
 	app_report_to_coordinator(SENSOR_DEVICE_ENDPOINT2, ZCL_CLUSTER_MS_RELATIVE_HUMIDITY, ZCL_RELATIVE_HUMIDITY_ATTRID_MEASUREDVALUE);
 	sws_printf("probe cal %s = %d\n", which == 1 ? "dry" : "wet", raw);
@@ -282,6 +288,10 @@ void probe_cfg_written(u16 attrID) {
 		break;
 	case PROBE_CAL_DRY_ATTRID:
 	case PROBE_CAL_WET_ATTRID:
+	case PROBE_CAL_DRY_MV_ATTRID:
+	case PROBE_CAL_WET_MV_ATTRID:
+	case PROBE_COMP_SLOPE_DRY_ATTRID:
+	case PROBE_COMP_SLOPE_WET_ATTRID:
 		g_zcl_MoistureAttrs.measuredValue = probe_percent(g_zcl_MoistureAttrs.raw_adc);
 		break;
 	}

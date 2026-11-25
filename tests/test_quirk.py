@@ -93,6 +93,19 @@ class QuirkContractTest(unittest.IsolatedAsyncioTestCase):
         # distinct unique ids: one entity per settle time
         self.assertEqual(len({m.unique_id_suffix or m.attribute_name for m in sensors}), len(settle_ms))
 
+    async def test_battery_compensation_entities(self):
+        device = DEVICE_REGISTRY.resolve(self.device('Fortify', 'ZS-304Z-Raw'))
+        ui = device.endpoints[1].thermostat_ui
+        expected = {'probe_cal_dry_voltage': 0x0131, 'probe_cal_wet_voltage': 0x0132,
+                    'probe_comp_slope_dry': 0x0133, 'probe_comp_slope_wet': 0x0134}
+        metadata = DEVICE_REGISTRY.match_entry(device).zha_device_factory.quirk_definition.entity_metadata
+        numbers = {m.attribute_name: m for m in metadata if type(m).__name__ == 'NumberMetadata'}
+        for name, attr_id in expected.items():
+            self.assertEqual(ui.attributes_by_name[name].id, attr_id)
+            self.assertIn(name, numbers)
+        self.assertEqual((numbers['probe_comp_slope_dry'].min, numbers['probe_comp_slope_dry'].max), (0, 2000))
+        self.assertEqual(numbers['probe_cal_wet_voltage'].max, 4000)
+
     async def test_does_not_match_stock_or_original_fortify(self):
         for manufacturer, model in [('Arteco', 'ZS-304Z'), ('AOYAN  ', 'AY-303Z'), ('Fortify', 'Soil-Moisture')]:
             with self.subTest(model=model):
