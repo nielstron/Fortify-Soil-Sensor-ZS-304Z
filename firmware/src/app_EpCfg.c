@@ -420,6 +420,16 @@ const zclAttrInfo_t relative_humdity_attrTbl2[] =
 
 	{ 0xF000,	ZCL_DATA_TYPE_UINT16,	ACCESS_CONTROL_READ | ACCESS_CONTROL_REPORTABLE, (u8*)&g_zcl_MoistureAttrs.raw_adc },
 	{ 0xF001,	ZCL_DATA_TYPE_UINT16,	ACCESS_CONTROL_READ | ACCESS_CONTROL_REPORTABLE, (u8*)&g_zcl_MoistureAttrs.adc_diode },
+#ifdef PROBE_INTERVAL_DEF_S
+	/* Probe sweep results: raw ADC (x4) at 1, 5, 20, 50, 100, 300, 1000 ms settle */
+	{ PROBE_SWEEP_RESULT_ATTRID + 0, ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_REPORTABLE, (u8*)&g_probe_sweep[0] },
+	{ PROBE_SWEEP_RESULT_ATTRID + 1, ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_REPORTABLE, (u8*)&g_probe_sweep[1] },
+	{ PROBE_SWEEP_RESULT_ATTRID + 2, ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_REPORTABLE, (u8*)&g_probe_sweep[2] },
+	{ PROBE_SWEEP_RESULT_ATTRID + 3, ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_REPORTABLE, (u8*)&g_probe_sweep[3] },
+	{ PROBE_SWEEP_RESULT_ATTRID + 4, ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_REPORTABLE, (u8*)&g_probe_sweep[4] },
+	{ PROBE_SWEEP_RESULT_ATTRID + 5, ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_REPORTABLE, (u8*)&g_probe_sweep[5] },
+	{ PROBE_SWEEP_RESULT_ATTRID + 6, ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_REPORTABLE, (u8*)&g_probe_sweep[6] },
+#endif
 
 	{ ZCL_ATTRID_GLOBAL_CLUSTER_REVISION, 	ZCL_DATA_TYPE_UINT16,  	ACCESS_CONTROL_READ,  						(u8*)&zcl_attr_global_clusterRevision},
 };
@@ -439,6 +449,17 @@ const zcl_thermostatUICfgAttr_t g_zcl_thermostatUICfgDefault = {
 		.txpwr_min_dbm   = 3,   // start low
 		.txpwr_max_dbm   = 10,  // climb up to ~chip max
 		.txpwr_fixed_dbm = 10,  // used only if switched to fixed mode
+#ifdef PROBE_INTERVAL_DEF_S
+		.probe_interval_s = PROBE_INTERVAL_DEF_S,
+		.probe_settle_ms  = PROBE_SETTLE_DEF_MS,
+		.probe_report_change = PROBE_REPORT_CHANGE_DEF,
+		.probe_samples    = PROBE_SAMPLES_DEF,
+		.probe_heartbeat_n = PROBE_HEARTBEAT_N_DEF,
+		.probe_pwm_khz    = PROBE_PWM_KHZ_DEF,
+		.probe_pwm_duty   = PROBE_PWM_DUTY_DEF,
+		.probe_cal_dry    = 0,	// not calibrated
+		.probe_cal_wet    = 0,
+#endif
 #if	USE_DISPLAY
 		.TemperatureDisplayMode = 0,
 #if SHOW_SMILEY
@@ -479,6 +500,23 @@ const zclAttrInfo_t thermostat_ui_cfg_attrTbl[] =
 	{ 0x0122, ZCL_DATA_TYPE_UINT8, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE,      (u8*)&g_zcl_thermostatUICfgAttrs.txpwr_max_dbm },
 	{ 0x0123, ZCL_DATA_TYPE_UINT8, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE,      (u8*)&g_zcl_thermostatUICfgAttrs.txpwr_fixed_dbm },
 	{ 0x0124, ZCL_DATA_TYPE_INT8,  ACCESS_CONTROL_READ | ACCESS_CONTROL_REPORTABLE, (u8*)&g_txpwr_cur_dbm },
+#if (DEV_SERVICES & SERVICE_PLM)
+	/* Debug mode on/off: 500 ms raw-probe reports for 10 min (RAM only, not saved) */
+	{ DEBUG_MODE_ATTRID, ZCL_DATA_TYPE_BOOLEAN, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE | ACCESS_CONTROL_REPORTABLE, (u8*)&g_debug_on },
+#ifdef PROBE_INTERVAL_DEF_S
+	{ PROBE_INTERVAL_ATTRID, ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE, (u8*)&g_zcl_thermostatUICfgAttrs.probe_interval_s },
+	{ PROBE_SETTLE_ATTRID,   ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE, (u8*)&g_zcl_thermostatUICfgAttrs.probe_settle_ms },
+	{ PROBE_REPORT_CHANGE_ATTRID, ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE, (u8*)&g_zcl_thermostatUICfgAttrs.probe_report_change },
+	{ PROBE_SAMPLES_ATTRID,  ZCL_DATA_TYPE_UINT8,  ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE, (u8*)&g_zcl_thermostatUICfgAttrs.probe_samples },
+	{ PROBE_HEARTBEAT_ATTRID, ZCL_DATA_TYPE_UINT8, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE, (u8*)&g_zcl_thermostatUICfgAttrs.probe_heartbeat_n },
+	{ PROBE_PWM_KHZ_ATTRID,  ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE, (u8*)&g_zcl_thermostatUICfgAttrs.probe_pwm_khz },
+	{ PROBE_PWM_DUTY_ATTRID, ZCL_DATA_TYPE_UINT8,  ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE, (u8*)&g_zcl_thermostatUICfgAttrs.probe_pwm_duty },
+	{ PROBE_CAL_DRY_ATTRID,  ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE | ACCESS_CONTROL_REPORTABLE, (u8*)&g_zcl_thermostatUICfgAttrs.probe_cal_dry },
+	{ PROBE_CAL_WET_ATTRID,  ZCL_DATA_TYPE_UINT16, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE | ACCESS_CONTROL_REPORTABLE, (u8*)&g_zcl_thermostatUICfgAttrs.probe_cal_wet },
+	{ PROBE_CAL_CAPTURE_ATTRID, ZCL_DATA_TYPE_UINT8, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE, (u8*)&g_probe_cal_capture },
+	{ PROBE_SWEEP_ATTRID,    ZCL_DATA_TYPE_UINT8,  ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE, (u8*)&g_probe_sweep_cmd },
+#endif
+#endif
 
 #if USE_TRIGGER
 	{ ZCL_THERMOSTAT_UI_CFG_ATTRID_TRIGGER_TRH_T,   ZCL_DATA_TYPE_INT16,    ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE, (u8*)&trg.temp_threshold },
