@@ -12,7 +12,7 @@ The stock firmware turns the probe reading into a percentage clamped to 0–100 
 - a configurable **probe interval**, settle time and excitation; temperature and humidity keep their own interval
 - **debug mode** (probe values every 500 ms) and a **probe sweep** to check settling
 - **OTA updates** from Home Assistant after the first flash
-- battery life estimated beyond the shelf life of the 2×AAA cells with the defaults
+- battery life estimated >10 years
 
 ## In Home Assistant
 
