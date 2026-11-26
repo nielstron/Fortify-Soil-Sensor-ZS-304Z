@@ -167,6 +167,7 @@ typedef struct {
 /* Adaptive TX power control (implemented in app_main.c) */
 extern u8 g_txpwr_step;
 extern s8 g_txpwr_cur_dbm;
+extern u32 g_tpc_trace;			// TX power search diagnostics, attribute 0x0139
 void tpc_apply(void);
 void tpc_note_tx(u8 status);
 void tpc_boost_max(void);
@@ -182,6 +183,14 @@ void sensorDevice_dataCnfCb(void *arg);
 #define LINK_FAIL_THRESHOLD		3
 #define LINK_REHOME_MIN_S		86400
 #define REHOME_ATTRID			0x0137
+
+/* Adaptive TX power (app_main.c): binary search for the lowest rung at which the
+ * parent acknowledges TPC_PROBE_N polls in a row, run as one burst of back-to-back
+ * polls (<= 3 rungs, < 1 s) after each (re)join, after a boost to max and every
+ * TPC_SEARCH_PERIOD_S. A miss below max jumps to max, polls again at once and
+ * searches again. */
+#define TPC_PROBE_N				8
+#define TPC_SEARCH_PERIOD_S		(6 * 3600)
 extern u8 g_rehome_cmd;
 void link_note(bool ok);
 

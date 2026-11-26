@@ -513,6 +513,8 @@ const zclAttrInfo_t thermostat_ui_cfg_attrTbl[] =
 	{ 0x0122, ZCL_DATA_TYPE_UINT8, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE,      (u8*)&g_zcl_thermostatUICfgAttrs.txpwr_max_dbm },
 	{ 0x0123, ZCL_DATA_TYPE_UINT8, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE,      (u8*)&g_zcl_thermostatUICfgAttrs.txpwr_fixed_dbm },
 	{ 0x0124, ZCL_DATA_TYPE_INT8,  ACCESS_CONTROL_READ | ACCESS_CONTROL_REPORTABLE, (u8*)&g_txpwr_cur_dbm },
+	/* TX power search diagnostics (app_main.c g_tpc_trace) */
+	{ 0x0139, ZCL_DATA_TYPE_UINT32, ACCESS_CONTROL_READ, (u8*)&g_tpc_trace },
 	/* Re-home: write 1 -> rejoin through the best parent in range; reported back as 0 */
 	{ REHOME_ATTRID, ZCL_DATA_TYPE_UINT8, ACCESS_CONTROL_READ | ACCESS_CONTROL_WRITE | ACCESS_CONTROL_REPORTABLE, (u8*)&g_rehome_cmd },
 #if (DEV_SERVICES & SERVICE_PLM)

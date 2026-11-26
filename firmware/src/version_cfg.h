@@ -144,7 +144,7 @@
 #define APP_BUILD				0x18	//BCD app build "0.4"
 #else
 #define APP_RELEASE				0x01	//BCD app release "0.1"
-#define APP_BUILD				0x48	//BCD app build "4.8" (Arteco: link monitoring + daily-capped re-home, switch feedback; pvvx master merged)
+#define APP_BUILD				0x52	//BCD app build "5.2" (Arteco: rejoin backoff fix; burst TX power search + diagnostics 0x0139; FRAME_PENDING = acked poll)
 #endif
 #define STACK_RELEASE			0x30	//BCD stack release 3.0
 #define STACK_BUILD				0x01	//BCD stack build 01

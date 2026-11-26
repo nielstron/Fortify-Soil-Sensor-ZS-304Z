@@ -121,16 +121,21 @@ inline void sensorDevice_rejoin_faillure_timer_set(void) {
 	g_sensorAppCtx.timerSteerEvt = TL_ZB_TIMER_SCHEDULE(sensorDevice_bdbNetworkSteerStart, NULL, period);
 }
 
-/* Rejoin period, ms. The full channel mask is scanned on every 4th attempt. */
+/* Rejoin period, ms. The full channel mask is scanned on every 4th attempt.
+ * Fortify: capped at 5 min (upstream: up to 30 min). A coordinator restart
+ * otherwise kept the sensor offline for an hour or more; 0x47 retried every 2 min. */
 static const u32 rejoinBackoffTbl[] = {
-	30*1000, 60*1000, 2*60*1000, 5*60*1000, 10*60*1000, 20*60*1000, 30*60*1000
+	30*1000, 60*1000, 2*60*1000, 5*60*1000
 };
 #define REJOIN_BACKOFF_STEPS	(sizeof(rejoinBackoffTbl)/sizeof(rejoinBackoffTbl[0]))
 
 static u8 rj_step;
 static u8 rj_chan; // network channel, 0 - unknown
 #if !USE_BLE
-static bool rj_secMode = REJOIN_SECURITY;
+/* Fortify: secured rejoins, plus a TC (insecure) rejoin on the full-mask attempt
+ * and once after BAD_KEY_SEQUENCE_NUMBER. Upstream alternated on every attempt;
+ * ZHA/EmberZNet deny TC rejoins outside permit-join, so every second attempt was lost. */
+static bool rj_tcRejoin;	// next attempt: TC rejoin, even while joined (missed key switch)
 #endif
 
 static void app_saveNwkChannel(void) {
@@ -153,9 +158,17 @@ static s32 sensorDevice_rejoinBackoff(void *arg){
     }
 
 #if !USE_BLE
-    sws_printf("rejoinBackoff(%d,%d)\n", rj_secMode, rj_step);
-    zb_rejoinSecModeSet(rj_secMode);
-    rj_secMode = !rj_secMode;
+    /* Fortify: the link is up again (a rejoin succeeded, or the parent answers our
+     * polls): stop. 0x48 kept this timer running while joined and rejoined every
+     * few minutes; the denied TC rejoins knocked the sensor off the network. */
+    if (zb_isDeviceJoinedNwk() && !g_sensorAppCtx.linkDown && !rj_tcRejoin) {
+    	g_sensorAppCtx.timerRejoinBackoffEvt = NULL;
+    	return -1;
+    }
+    bool secure = !rj_tcRejoin && (rj_step & 3) != 3;
+    rj_tcRejoin = 0;
+    sws_printf("rejoinBackoff(%d,%d)\n", secure, rj_step);
+    zb_rejoinSecModeSet(secure ? REJOIN_SECURITY : REJOIN_INSECURITY);
 #else
     sws_printf("rejoinBackoff()\n");
 #endif
@@ -604,7 +617,7 @@ void sensorDevice_nwkStatusIndHandler(zdo_nwk_status_ind_t *pNwkStatusInd)
             sws_printf("curFC = %d, rcvFC = %d, failCnt = %d\n", nbe->incomingFrameCnt, nbe->receivedFrameCnt, nbe->frameCounterFailCnt);
         }
     } else if (pNwkStatusInd->status == NWK_COMMAND_STATUS_BAD_KEY_SEQUENCE_NUMBER) {
-        rj_secMode = REJOIN_INSECURITY;
+        rj_tcRejoin = 1;
         app_rejoinSchedule(1000);
     }
 }

@@ -63,6 +63,11 @@ class CustomUserInterfaceCluster(CustomCluster, UserInterface):
         tx_power_current = ZCLAttributeDef(
             id=0x0124, type=t.int8s, access="rp", is_manufacturer_specific=False
         )
+        # TX power search diagnostics (fw >= 0x01513001): byte 0 probe polls of the
+        # last search, 1 rung of its last miss (0xFF none), 2 MAC status, 3 final rung
+        tx_power_search_trace = ZCLAttributeDef(
+            id=0x0139, type=t.uint32_t, access="r", is_manufacturer_specific=False
+        )
         # Debug mode: 500 ms raw-probe reports, auto-off after 10 min (RAM only)
         debug_mode = ZCLAttributeDef(
             id=0x0125, type=t.Bool, access="rwp", is_manufacturer_specific=False

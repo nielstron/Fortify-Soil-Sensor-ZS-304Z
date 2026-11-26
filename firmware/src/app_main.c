@@ -95,6 +95,20 @@ s8 g_txpwr_cur_dbm = 3;
 extern u32 rtcSeconds;
 static u8  tpc_badscore      = 0;  // rolling bad-parent-link score (NO_ACK +2, ok -1)
 
+/* Binary search for the lowest rung at which the parent acknowledges TPC_PROBE_N
+ * polls in a row. A poll is MAC-acknowledged by the parent, so its ACK proves our
+ * uplink at that power, and a missed poll loses no data. hi = a rung known to work,
+ * lo = lowest rung not yet ruled out. Runs after boot and every TPC_SEARCH_PERIOD_S;
+ * in between, misses still climb one rung at a time (tpc_note_tx). */
+static u8  tpc_srch;               // search running
+static u8  tpc_srch_done;          // a search has run since boot
+static u8  tpc_lo, tpc_hi, tpc_probe_ok;
+static u32 tpc_srch_last;          // rtcSeconds when the last search started
+/* Diagnostics, attribute 0x0139 (read-only): byte 0 probe polls of the last search
+ * (0 = none ran), byte 1 rung of its last miss (0xFF = none), byte 2 MAC status of
+ * that miss, byte 3 the rung it settled on. */
+u32 g_tpc_trace;
+
 
 static u8 tpc_step_for_dbm(u8 d){
 	u8 s = 0;
@@ -112,8 +126,92 @@ static void tpc_set_step(u8 step){
 	rf_setTxPower(tpc_ladder[step]);      // apply immediately
 }
 
+/* Probe the middle of [lo, hi], or settle on hi once the interval is one rung. */
+static void tpc_search_next(void){
+	if(tpc_lo >= tpc_hi){
+		tpc_srch = 0;
+		g_tpc_trace = (g_tpc_trace & 0x00ffffff) | ((u32)tpc_hi << 24);
+		tpc_set_step(tpc_hi);
+		tpc_badscore = 0;
+		return;
+	}
+	tpc_probe_ok = 0;
+	tpc_set_step((tpc_lo + tpc_hi) / 2);
+}
+
+static void tpc_search_note(bool ok, u8 status){
+	if((g_tpc_trace & 0xff) < 0xff)
+		g_tpc_trace++;
+	if(!ok) {
+		g_tpc_trace = (g_tpc_trace & 0xff0000ff) | ((u32)status << 16) | ((u32)g_txpwr_step << 8);
+		tpc_lo = g_txpwr_step + 1;     // too weak: everything up to here is ruled out
+	}
+	else if(++tpc_probe_ok >= TPC_PROBE_N)
+		tpc_hi = g_txpwr_step;         // passed: new known-good rung
+	else
+		return;
+	tpc_search_next();
+}
+
+static void tpc_search_start(void){
+	tpc_srch_done = 1;
+	tpc_srch_last = rtcSeconds;
+	tpc_lo = tpc_step_for_dbm(g_zcl_thermostatUICfgAttrs.txpwr_min_dbm);
+	tpc_hi = g_txpwr_step;            // the current rung works
+	if(tpc_hi < tpc_lo)
+		tpc_hi = tpc_lo;
+	tpc_srch = 1;
+	g_tpc_trace = 0x0000ff00;         // no probe yet, no miss yet
+	tpc_search_next();
+}
+
+/* The parent acknowledged our data poll: with data for us (SUCCESS), with nothing
+ * queued (NO_DATA) or with more queued (FRAME_PENDING, 0x20). Counting only the
+ * first two made every poll with pending data look like a lost link. */
+static bool poll_acked(u8 status){
+	return status == SUCCESS || status == MAC_STA_NO_DATA || status == MAC_STA_FRAME_PENDING;
+}
+
+/* Next probe poll of a search burst, right after the previous confirm. */
+static void tpc_probe_poll(void *arg){
+	(void) arg;
+	if(tpc_srch)
+		zb_endDeviceSyncReq();
+}
+
+/* Poll again right away (after a miss, now at max power). */
+static void tpc_repoll(void *arg){
+	(void) arg;
+	if(zb_isDeviceJoinedNwk())
+		zb_endDeviceSyncReq();
+}
+
+/* Poll result: feeds the search, or starts one when due on a healthy link. The
+ * search runs as one burst of back-to-back polls (<= 3 rungs x TPC_PROBE_N, well
+ * under a second), so it never skips a regular poll: the parent keeps queued
+ * messages for a sleeping child only ~7.7 s (macTransactionPersistenceTime). */
+static void tpc_note_poll(u8 status){
+	bool ok = poll_acked(status);
+	if(!g_zcl_thermostatUICfgAttrs.txpwr_mode)
+		return;                       // fixed power
+	if(tpc_srch) {
+		tpc_search_note(ok, status);
+	} else {
+		tpc_note_tx(ok ? SUCCESS : MAC_STA_NO_ACK);
+		if(ok && !tpc_badscore && zb_isDeviceJoinedNwk() && !g_sensorAppCtx.linkDown
+		 && (!tpc_srch_done || rtcSeconds - tpc_srch_last >= TPC_SEARCH_PERIOD_S))
+			tpc_search_start();
+	}
+	if(tpc_srch)
+		TL_SCHEDULE_TASK(tpc_probe_poll, NULL);
+}
+
 void tpc_apply(void){
 	zcl_thermostatUICfgAttr_t *c = &g_zcl_thermostatUICfgAttrs;
+	if(tpc_srch)
+		g_txpwr_step = tpc_hi;            // interrupted burst: back to the known-good rung
+	tpc_srch = 0;                         // (re)join or new limits: search again
+	tpc_srch_done = 0;
 	u8 mn = tpc_step_for_dbm(c->txpwr_min_dbm);
 	u8 mx = tpc_step_for_dbm(c->txpwr_max_dbm);
 	if(mx < mn) mx = mn;
@@ -131,6 +229,8 @@ void tpc_apply(void){
 void tpc_boost_max(void){
 	zcl_thermostatUICfgAttr_t *c = &g_zcl_thermostatUICfgAttrs;
 	if(c->txpwr_mode){                    // adaptive only
+		tpc_srch = 0;
+		tpc_srch_done = 0;                // search down again once the link is back
 		tpc_set_step(tpc_step_for_dbm(c->txpwr_max_dbm));
 		tpc_badscore = 0;
 	}
@@ -180,7 +280,16 @@ void link_note(bool ok) {
 /* Data poll to the parent: answered (with or without pending data) = ok. */
 void sensorDevice_nlmeSyncCnf(void *arg) {
 	nlme_sync_cnf_t *cnf = (nlme_sync_cnf_t *)arg;
-	link_note(cnf->status == SUCCESS || cnf->status == MAC_STA_NO_DATA);
+	bool ok = poll_acked(cnf->status);
+	/* Fortify: a parent that answers our polls means the link is up, even if no
+	 * BDB success callback reported it; this also ends a pending rejoin backoff. */
+	if(ok && g_sensorAppCtx.linkDown && zb_isDeviceJoinedNwk())
+		g_sensorAppCtx.linkDown = 0;
+	link_note(ok);
+	/* TX power feedback. During a search burst any other failure also counts as a
+	 * miss, so the burst always continues (or settles) instead of stalling low. */
+	if(ok || cnf->status == MAC_STA_NO_ACK || tpc_srch)
+		tpc_note_poll(cnf->status);
 }
 
 static int rehome_cmd_cb(void *arg) {
@@ -202,23 +311,33 @@ void tpc_note_tx(u8 status){
 	if(!c->txpwr_mode) return;            // adaptive only
 	u8 mx = tpc_step_for_dbm(c->txpwr_max_dbm);
 
-	if(status == APS_STATUS_NO_ACK || status == MAC_STA_NO_ACK){
-		if(tpc_badscore < 200) tpc_badscore += 2;   // a miss hurts
-	} else {
+	bool miss = status == APS_STATUS_NO_ACK || status == MAC_STA_NO_ACK;
+	if(tpc_srch){                                   // a report failed at a probed rung
+		if(miss)
+			tpc_search_note(false, status);
+		return;
+	}
+	if(!miss){
 		if(tpc_badscore) tpc_badscore--;            // a good tx slowly heals
 		return;
 	}
 
-	/* Link is degrading. First climb TX power; once we're maxed and it's STILL
-	 * bad, force a rejoin so the stack re-picks a parent. The NWK LQI threshold
-	 * (NWK_NEIGHBORTBL_ADD_LQITHRESHOLD) then excludes a too-weak coordinator,
-	 * which is what lets us land on a nearer router instead of clinging on. */
+	/* A miss below max: jump to max and poll again at once, so whatever the parent
+	 * queued for us (kept only ~7.7 s) is fetched; that poll's success then starts
+	 * a new search burst. No immediate re-poll at max, so a lost parent cannot
+	 * cause a poll storm. */
 	if(g_txpwr_step < mx){
-		if(tpc_badscore >= 4){
-			tpc_set_step(g_txpwr_step + 1);
-			tpc_badscore = 1;                       // let the new level prove itself
-		}
-	} else if(tpc_badscore >= 12){                  // bad even at max TX power
+		tpc_set_step(mx);
+		tpc_badscore = 0;
+		tpc_srch_done = 0;
+		TL_SCHEDULE_TASK(tpc_repoll, NULL);
+		return;
+	}
+	/* Bad even at max TX power: force a rejoin so the stack re-picks a parent.
+	 * The NWK LQI threshold (NWK_NEIGHBORTBL_ADD_LQITHRESHOLD) then excludes a
+	 * too-weak coordinator, which lets us land on a nearer router. */
+	if(tpc_badscore < 200) tpc_badscore += 2;
+	if(tpc_badscore >= 12){
 		tpc_badscore = 0;
 		if(zb_isDeviceJoinedNwk())
 			link_rehome(false, 10);                 // shares the daily re-home cap
